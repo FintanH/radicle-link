@@ -11,6 +11,7 @@ use super::{
     IdentityCache,
     ObjectId,
     RefsStorage,
+    Schema,
     SchemaChange,
     TypeName,
 };
@@ -19,7 +20,10 @@ use link_crypto::PublicKey;
 use link_identities::git::{Person, Project};
 use thiserror::Error as ThisError;
 
-use std::collections::{hash_map::Entry, BTreeSet, HashMap};
+use std::{
+    collections::{hash_map::Entry, BTreeSet, HashMap},
+    convert::TryFrom,
+};
 
 #[derive(Debug, ThisError)]
 pub enum Error<RefsError: std::error::Error> {
@@ -128,7 +132,7 @@ impl ChangeGraph {
             .externals(petgraph::Direction::Incoming)
             .collect();
         roots.sort();
-        let mut history_bytes = Vec::new();
+        let mut proposed_history = ProposedHistory::new(self.schema_change.schema().clone());
         // This is okay because we check that the graph has a root node in
         // GraphBuilder::build
         let root = roots.first().unwrap();
@@ -174,29 +178,16 @@ impl ChangeGraph {
                     },
                 };
                 match &change.history() {
-                    History::Automerge(bytes) => {
-                        let mut new_history: Vec<u8> = history_bytes.clone();
-                        new_history.extend(bytes);
-                        let backend = match automerge::Backend::load(new_history) {
-                            Ok(b) => b,
-                            Err(e) => {
-                                tracing::warn!(commit=?change.commit(), err=?e, "invalid automerge change, skipping");
-                                return petgraph::visit::Control::Prune;
-                            },
-                        };
-                        let mut frontend = automerge::Frontend::new();
-                        let patch = backend.get_patch().unwrap();
-                        frontend.apply_patch(patch).unwrap();
-                        let value = frontend
-                            .get_value(&automerge::Path::root())
-                            .unwrap()
-                            .to_json();
-                        match self.schema_change.schema().validate(&value) {
-                            Ok(()) => history_bytes.extend(bytes),
-                            Err(e) => {
-                                tracing::warn!(commit=?change.commit(), errors=?e, "change violated schema, skipping");
-                            },
-                        }
+                    History::Automerge(bytes) => match proposed_history.propose_change(bytes) {
+                        ProposalResponse::Accepted => {},
+                        ProposalResponse::InvalidChange(e) => {
+                            tracing::warn!(commit=?change.commit(), err=?e, "invalid automerge change, skipping");
+                            return petgraph::visit::Control::Prune;
+                        },
+                        ProposalResponse::InvalidatesSchema(e) => {
+                            tracing::warn!(commit=?change.commit(), errors=?e, "change violated schema, skipping");
+                            return petgraph::visit::Control::Prune;
+                        },
                     },
                 };
             };
@@ -205,7 +196,7 @@ impl ChangeGraph {
         CollaborativeObject {
             containing_identity: self.containing_identity.clone(),
             typename,
-            history: History::Automerge(history_bytes),
+            history: History::Automerge(proposed_history.valid_history),
             id: self.object_id,
             schema: self.schema_change.schema().clone(),
         }
@@ -302,4 +293,79 @@ fn is_maintainer(project: &Project, person: &Person) -> bool {
         .ok()
         .map(|k| !k.is_empty())
         .unwrap_or(false)
+}
+
+/// A history which allows proposing a new change
+///
+/// The main purpose of this is to cache the backend and frontend for use when
+/// the change does not invalidate the schema (presumably the common case). This
+/// is necessary because loading a schema invalidating change requires throwing
+/// away the backend and reloading it, which is very wasteful for the happy
+/// path.
+struct ProposedHistory {
+    backend: automerge::Backend,
+    frontend: automerge::Frontend,
+    schema: Schema,
+    valid_history: Vec<u8>,
+}
+
+enum ProposalResponse {
+    Accepted,
+    InvalidChange(Box<dyn std::error::Error>),
+    InvalidatesSchema(Box<dyn std::error::Error>),
+}
+
+impl ProposedHistory {
+    fn new(schema: Schema) -> ProposedHistory {
+        ProposedHistory {
+            backend: automerge::Backend::new(),
+            frontend: automerge::Frontend::new(),
+            valid_history: Vec::new(),
+            schema,
+        }
+    }
+
+    fn propose_change(&mut self, change_bytes: &[u8]) -> ProposalResponse {
+        let change = automerge::Change::try_from(&change_bytes[..]);
+        match change {
+            Ok(change) => {
+                let old_backend = self.backend.clone();
+                let patch = match self.backend.apply_changes(vec![change]) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.backend = old_backend;
+                        return ProposalResponse::InvalidChange(Box::new(e));
+                    },
+                };
+                match self.frontend.apply_patch(patch) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        self.reset(old_backend);
+                        return ProposalResponse::InvalidChange(Box::new(e));
+                    },
+                }
+                let value = self.frontend.get_value(&automerge::Path::root()).unwrap();
+                let validation_error = self.schema.validate(&value.to_json()).err();
+                match validation_error {
+                    None => {
+                        self.valid_history.extend(change_bytes);
+                        ProposalResponse::Accepted
+                    },
+                    Some(e) => {
+                        self.reset(old_backend);
+                        ProposalResponse::InvalidatesSchema(Box::new(e))
+                    },
+                }
+            },
+            Err(e) => ProposalResponse::InvalidChange(Box::new(e)),
+        }
+    }
+
+    fn reset(&mut self, old_backend: automerge::Backend) {
+        self.backend = old_backend;
+        let mut old_frontend = automerge::Frontend::new();
+        let patch = self.backend.get_patch().unwrap();
+        old_frontend.apply_patch(patch).unwrap();
+        self.frontend = old_frontend;
+    }
 }
