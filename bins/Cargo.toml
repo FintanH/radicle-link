@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "linkd",
+  "rad",
   "rad-identities-dev",
   "rad-profile-dev",
 ]
