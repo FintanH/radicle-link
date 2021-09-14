@@ -2,6 +2,7 @@
 members = [
   "linkd",
   "rad-identities-dev",
+  "rad-profile-dev",
 ]
 
 [patch.crates-io.thrussh-encoding]
