@@ -40,7 +40,7 @@ impl Tracker {
 }
 
 #[instrument(name = "tracking subroutine", skip(peer, tracker))]
-pub async fn routine<D, S>(peer: Peer<S>, tracker: Tracker) -> anyhow::Result<()>
+pub async fn routine<S>(peer: Peer<S>, tracker: Tracker) -> anyhow::Result<()>
 where
     S: Signer + Clone,
 {
