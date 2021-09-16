@@ -27,10 +27,11 @@ use crate::{keys, runtime};
 pub fn signer(profile: &Profile) -> Result<BoxedSigner, super::Error> {
     let storage = ReadOnly::open(profile.paths())?;
     let peer_id = storage.peer_id();
+    let pk = (*peer_id.as_public_key()).into();
     tracing::trace!(peer=%peer_id, "obtaining signer for peer");
     let keys = runtime::block_on(ssh::list_keys::<UnixStream>())?;
-    if keys.contains(&(**peer_id).into()) {
-        let agent = SshAgent::new((*peer_id.as_public_key()).into());
+    if keys.contains(&pk) {
+        let agent = SshAgent::new(pk);
         let signer = runtime::block_on(agent.connect::<UnixStream>())?;
         Ok(SomeSigner {
             signer: Arc::new(signer),
