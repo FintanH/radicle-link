@@ -8,7 +8,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     hash::{BuildHasher, Hash},
     iter::{self, FromIterator},
-    ops::Deref,
+    ops::{Deref, DerefMut},
 };
 
 pub use nonempty::NonEmpty as NonEmptyVec;
@@ -199,6 +199,12 @@ impl<T> Deref for NonEmpty<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<T> DerefMut for NonEmpty<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
