@@ -3,8 +3,14 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use crate::Cstring;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+};
+
+use crate::{Canonical, Cstring};
+
+mod ser;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
@@ -16,10 +22,26 @@ pub enum Value {
     Null,
 }
 
+impl Canonical for Value {
+    type Error = Infallible;
+
+    fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
+	Ok(self.to_bytes())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Number {
     U64(u64),
     I64(i64),
+}
+
+impl Canonical for Number {
+    type Error = Infallible;
+
+    fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
+	Ok(self.to_bytes())
+    }
 }
 
 pub trait Cjson {
@@ -119,7 +141,7 @@ impl Cjson for bool {
     }
 }
 
-// Iterator helper
+// Iterator helpers
 
 fn into_array<I, T>(it: I) -> Value
 where
