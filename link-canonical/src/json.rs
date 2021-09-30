@@ -6,10 +6,14 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
+    str::FromStr,
 };
+
+use nom::Finish as _;
 
 use crate::{Canonical, Cstring};
 
+mod parser;
 mod ser;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,7 +30,21 @@ impl Canonical for Value {
     type Error = Infallible;
 
     fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
-	Ok(self.to_bytes())
+        Ok(self.to_bytes())
+    }
+}
+
+impl FromStr for Value {
+    type Err = nom::error::Error<String>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parser::json(s).finish() {
+            Ok((_remaining, value)) => Ok(value),
+            Err(nom::error::Error { input, code }) => Err(nom::error::Error {
+                input: input.to_string(),
+                code,
+            }),
+        }
     }
 }
 
@@ -40,7 +58,7 @@ impl Canonical for Number {
     type Error = Infallible;
 
     fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
-	Ok(self.to_bytes())
+        Ok(self.to_bytes())
     }
 }
 
