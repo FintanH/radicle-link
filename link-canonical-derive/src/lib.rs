@@ -21,9 +21,16 @@ use syn::{
     Variant,
 };
 
-#[proc_macro_derive(Cjson)]
+mod internals;
+use internals::{attr::Rules, case};
+
+#[proc_macro_derive(Cjson, attributes(cjson))]
 pub fn cjson_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let rules = match Rules::from_input(&input) {
+        Ok(rules) => rules,
+        Err(err) => panic!("{}", err),
+    };
 
     // Used in the quasi-quotation below as `#name`.
     let name = &input.ident;
@@ -32,7 +39,7 @@ pub fn cjson_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     // Generate an expression to sum up the heap size of each field.
-    let cjson = cjson(&input.ident, &input.data);
+    let cjson = cjson(&input.ident, &input.data, &rules);
 
     let expanded = quote! {
         // The generated impl.
@@ -59,9 +66,9 @@ fn add_trait_bounds(mut generics: Generics) -> Generics {
     generics
 }
 
-fn cjson(ident: &Ident, data: &Data) -> TokenStream {
+fn cjson(ident: &Ident, data: &Data, rules: &Rules) -> TokenStream {
     match *data {
-        Data::Struct(ref data) => cjson_struct(ident, data),
+        Data::Struct(ref data) => cjson_struct(ident, data, rules),
         Data::Enum(ref data) => cjson_enum(ident, data),
         Data::Union(_) => unimplemented!(),
     }
@@ -114,7 +121,7 @@ fn cjson(ident: &Ident, data: &Data) -> TokenStream {
 /// ```json
 /// null
 /// ```
-fn cjson_struct(ident: &Ident, data: &DataStruct) -> TokenStream {
+fn cjson_struct(ident: &Ident, data: &DataStruct, rules: &Rules) -> TokenStream {
     match data.fields {
         Fields::Named(ref fields) => {
             let names = fields
@@ -125,7 +132,7 @@ fn cjson_struct(ident: &Ident, data: &DataStruct) -> TokenStream {
             let alias = names.clone().map(|name| {
                 quote! { let #name = self.#name; }
             });
-            let imp = cjson_named_fields(ident, names.clone());
+            let imp = cjson_named_fields(ident, names, rules);
             quote! {
                 #(#alias)*
                 #imp
@@ -216,9 +223,14 @@ fn cjson_enum(ident: &Ident, data: &DataEnum) -> TokenStream {
     quote! { match self { #(#arms),* } }
 }
 
-fn cjson_named_fields(ident: &Ident, names: impl Iterator<Item = Ident>) -> TokenStream {
+fn cjson_named_fields(
+    ident: &Ident,
+    names: impl Iterator<Item = Ident>,
+    rules: &Rules,
+) -> TokenStream {
     let kvs = names.map(|name| {
-        quote! { (stringify!(#name), link_canonical::json::Cjson::into_cjson(#name)) }
+        let cased = case::convert(&format!("{}", name), rules.casing);
+        quote! { (#cased, link_canonical::json::Cjson::into_cjson(#name)) }
     });
     quote! {
     use std::iter::FromIterator as _;
@@ -256,7 +268,7 @@ fn cjson_variant(ident: &Ident, variant: &Variant) -> TokenStream {
     match &variant.fields {
         Fields::Named(ref fields) => {
             let named = fields.named.iter().cloned().map(|f| f.ident.unwrap());
-            let body = cjson_named_fields(&variant.ident, named.clone());
+            let body = cjson_named_fields(&variant.ident, named.clone(), &Rules::new());
             quote! { #ident::#name { #(#named),* } => { #body } }
         },
         Fields::Unnamed(ref fields) => {
