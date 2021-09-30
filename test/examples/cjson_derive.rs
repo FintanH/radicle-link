@@ -5,7 +5,11 @@
 
 use std::str;
 
-use link_canonical::{json::Cjson, Canonical as _, Cstring};
+use link_canonical::{
+    json::{Cjson, Value},
+    Canonical as _,
+    Cstring,
+};
 use link_canonical_derive::Cjson;
 
 #[derive(Cjson)]
@@ -46,6 +50,13 @@ fn main() -> anyhow::Result<()> {
         "{}",
         str::from_utf8(&val.canonical_form().unwrap()).unwrap()
     );
+    println!(
+        "{:#?}",
+        str::from_utf8(&val.canonical_form().unwrap())
+            .unwrap()
+            .parse::<Value>()
+            .unwrap()
+    );
 
     let val = Bar(true, false);
     let val = val.into_cjson();
@@ -76,5 +87,12 @@ fn main() -> anyhow::Result<()> {
     let val = Union::Jack;
     println!("{:#?}", val.into_cjson());
 
+    let test = "
+{
+  \"hello\": \"world\",
+  \"foo\": 22,
+}
+";
+    test.parse::<Value>().unwrap();
     Ok(())
 }
