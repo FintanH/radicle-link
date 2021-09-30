@@ -9,8 +9,6 @@ use std::{
     str::FromStr,
 };
 
-use nom::Finish as _;
-
 use crate::{Canonical, Cstring};
 
 mod parser;
@@ -35,15 +33,24 @@ impl Canonical for Value {
 }
 
 impl FromStr for Value {
-    type Err = nom::error::Error<String>;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parser::json(s).finish() {
-            Ok((_remaining, value)) => Ok(value),
-            Err(nom::error::Error { input, code }) => Err(nom::error::Error {
-                input: input.to_string(),
-                code,
-            }),
+        use nom::{
+            error::{convert_error, VerboseError},
+            Err::{Error, Failure, Incomplete},
+        };
+
+        match parser::json::<VerboseError<&str>>(s) {
+            Ok((rem, value)) => {
+                if rem.trim().is_empty() {
+                    Ok(value)
+                } else {
+                    Err(format!("expected EOF, found: {}", rem))
+                }
+            },
+            Err(Error(e)) | Err(Failure(e)) => Err(convert_error(s, e)),
+            Err(Incomplete(_)) => Err("unexpected end of input".to_string()),
         }
     }
 }

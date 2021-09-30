@@ -3,18 +3,16 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Neg,
-};
+use std::ops::Neg;
 
 use nom::{
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{char, digit1},
-    combinator::{eof, map, value},
-    multi::separated_list1,
-    sequence::{delimited, preceded, separated_pair, terminated},
+    bytes::streaming::{tag, take_while},
+    character::streaming::{char, digit0, one_of},
+    combinator::{cut, map, recognize, value},
+    error::{context, ContextError, FromExternalError, ParseError},
+    multi::separated_list0,
+    sequence::{self, preceded, separated_pair, terminated},
 };
 
 use crate::{
@@ -23,86 +21,160 @@ use crate::{
 };
 
 mod string;
-use string::parse_string;
 
-pub fn json(i: &str) -> nom::IResult<&str, Value> {
-    terminated(alt((string, number, object, array, boolean, null)), eof)(i)
+pub fn json<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    preceded(sp, alt((string, number, object, array, boolean, null)))(i)
 }
 
-fn object(i: &str) -> nom::IResult<&str, Value> {
-    map(alt((empty_object, full_object)), |o| Value::Object(o))(i)
+fn object<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    context(
+        "object",
+        preceded(
+            char('{'),
+            cut(terminated(
+                map(members, |members| {
+                    Value::Object(members.into_iter().collect())
+                }),
+                preceded(sp, char('}')),
+            )),
+        ),
+    )(i)
 }
 
-fn empty_object(i: &str) -> nom::IResult<&str, BTreeMap<Cstring, Value>> {
-    map(tag("{}"), |_| BTreeMap::new())(i)
+fn members<'a, E>(i: &'a str) -> nom::IResult<&'a str, Vec<(Cstring, Value)>, E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    separated_list0(preceded(sp, char(',')), pair)(i)
 }
 
-fn full_object(i: &str) -> nom::IResult<&str, BTreeMap<Cstring, Value>> {
-    map(delimited(char('{'), members, char('}')), |ms| {
-        ms.into_iter().collect()
-    })(i)
+fn pair<'a, E>(i: &'a str) -> nom::IResult<&'a str, (Cstring, Value), E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    separated_pair(preceded(sp, cstring), cut(preceded(sp, char(':'))), json)(i)
 }
 
-fn members(i: &str) -> nom::IResult<&str, Vec<(Cstring, Value)>> {
-    separated_list1(char(','), pair)(i)
+fn array<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    map(
+        context(
+            "array",
+            preceded(
+                char('['),
+                cut(terminated(
+                    separated_list0(preceded(sp, char(',')), json),
+                    preceded(sp, char(']')),
+                )),
+            ),
+        ),
+        |values| Value::Array(values.into_iter().collect()),
+    )(i)
 }
 
-fn pair(i: &str) -> nom::IResult<&str, (Cstring, Value)> {
-    separated_pair(cstring, char(':'), json)(i)
-}
-
-fn array(i: &str) -> nom::IResult<&str, Value> {
-    map(alt((empty_array, full_array)), |a| Value::Array(a))(i)
-}
-
-fn empty_array(i: &str) -> nom::IResult<&str, BTreeSet<Value>> {
-    map(tag("[]"), |_| BTreeSet::new())(i)
-}
-
-fn full_array(i: &str) -> nom::IResult<&str, BTreeSet<Value>> {
-    map(separated_list1(char(','), json), |vs| {
-        vs.into_iter().collect()
-    })(i)
-}
-
-fn null(i: &str) -> nom::IResult<&str, Value> {
+fn null<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>,
+{
     value(Value::Null, tag("null"))(i)
 }
 
-fn boolean(i: &str) -> nom::IResult<&str, Value> {
+fn boolean<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str> + ContextError<&'a str>,
+{
+    context(
+        "bool",
+        alt((
+            value(Value::Bool(true), tag("true")),
+            value(Value::Bool(false), tag("false")),
+        )),
+    )(i)
+}
+
+fn string<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>
+        + ContextError<&'a str>
+        + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    context("string", map(cstring, |s| s.into_cjson()))(i)
+}
+
+fn cstring<'a, E>(i: &'a str) -> nom::IResult<&'a str, Cstring, E>
+where
+    E: ParseError<&'a str> + FromExternalError<&'a str, std::num::ParseIntError>,
+{
+    map(string::parse, Cstring::from)(i)
+}
+
+fn number<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str> + ContextError<&'a str>,
+{
+    context("number", alt((signed, unsigned)))(i)
+}
+
+fn digits<'a, E>(i: &'a str) -> nom::IResult<&'a str, &str, E>
+where
+    E: ParseError<&'a str>,
+{
     alt((
-        value(Value::Bool(true), tag("true")),
-        value(Value::Bool(false), tag("false")),
+        tag("0"),
+        recognize(sequence::pair(one_of("123456789"), digit0)),
     ))(i)
 }
 
-fn string(i: &str) -> nom::IResult<&str, Value> {
-    map(cstring, |s| s.into_cjson())(i)
-}
-
-fn cstring(i: &str) -> nom::IResult<&str, Cstring> {
-    map(parse_string, |s| Cstring::from(s))(i)
-}
-
-fn number(i: &str) -> nom::IResult<&str, Value> {
-    alt((signed, unsigned))(i)
-}
-
-fn signed(i: &str) -> nom::IResult<&str, Value> {
+fn signed<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>,
+{
     preceded(
         minus,
-        map(digit1, |digits: &str| {
+        map(digits, |digits: &'a str| {
             digits.parse::<i64>().unwrap().neg().into_cjson()
         }),
     )(i)
 }
 
-fn unsigned(i: &str) -> nom::IResult<&str, Value> {
-    map(digit1, |digits: &str| {
+fn unsigned<'a, E>(i: &'a str) -> nom::IResult<&'a str, Value, E>
+where
+    E: ParseError<&'a str>,
+{
+    map(digits, |digits: &'a str| {
         digits.parse::<u64>().unwrap().into_cjson()
     })(i)
 }
 
-fn minus(i: &str) -> nom::IResult<&str, char> {
+fn minus<'a, E>(i: &'a str) -> nom::IResult<&'a str, char, E>
+where
+    E: ParseError<&'a str>,
+{
     char('-')(i)
+}
+
+fn sp<'a, E: ParseError<&'a str>>(i: &'a str) -> nom::IResult<&'a str, &'a str, E> {
+    let chars = " \t\r\n";
+
+    // nom combinators like `take_while` return a function. That function is the
+    // parser,to which we can pass the input
+    take_while(move |c| chars.contains(c))(i)
 }
