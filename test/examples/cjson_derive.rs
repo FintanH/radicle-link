@@ -3,7 +3,9 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use link_canonical::{json::Cjson, Cstring};
+use std::str;
+
+use link_canonical::{json::Cjson, Canonical as _, Cstring};
 use link_canonical_derive::Cjson;
 
 #[derive(Cjson)]
@@ -37,10 +39,20 @@ fn main() -> anyhow::Result<()> {
         x: 42,
         y: Some("hello".into()),
     };
-    println!("{:#?}", val.into_cjson());
+    let val = val.into_cjson();
+    println!("{:#?}", val);
+    println!(
+        "{}",
+        str::from_utf8(&val.canonical_form().unwrap()).unwrap()
+    );
 
     let val = Bar(true, false);
-    println!("{:#?}", val.into_cjson());
+    let val = val.into_cjson();
+    println!("{:#?}", val);
+    println!(
+        "{}",
+        str::from_utf8(&val.canonical_form().unwrap()).unwrap()
+    );
 
     let val = Baz;
     println!("{:#?}", val.into_cjson());
