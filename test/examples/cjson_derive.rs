@@ -9,9 +9,10 @@ use link_canonical::{json::Cjson, Canonical as _, Cstring};
 use link_canonical_derive::Cjson;
 
 #[derive(Cjson)]
+#[cjson(rename_all = "camelCase")]
 struct Foo {
-    x: u64,
-    y: Option<Cstring>,
+    x_foo: u64,
+    y_foo: Option<Cstring>,
 }
 
 #[derive(Cjson)]
@@ -36,8 +37,8 @@ enum Union {
 
 fn main() -> anyhow::Result<()> {
     let val = Foo {
-        x: 42,
-        y: Some("hello".into()),
+        x_foo: 42,
+        y_foo: Some("hello".into()),
     };
     let val = val.into_cjson();
     println!("{:#?}", val);
