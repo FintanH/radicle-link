@@ -90,9 +90,11 @@ fn main() -> anyhow::Result<()> {
     let test = "
 {
   \"hello\": \"world\",
-  \"foo\": 22,
-}
-";
-    test.parse::<Value>().unwrap();
+  \"foo\":   22
+}";
+    match test.parse::<Value>() {
+        Ok(val) => println!("{:#?}", val),
+        Err(err) => println!("{}", err),
+    };
     Ok(())
 }
