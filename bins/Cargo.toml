@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "cjson",
   "linkd",
   "rad",
   "rad-identities-dev",
