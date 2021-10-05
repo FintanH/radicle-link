@@ -1,0 +1,65 @@
+= `radicle-link` Maintainer's Checklist
+:author: @FintanH
+:revdate: 2021-10-05
+
+* Author: {author}
+* Date: {revdate}
+* Discussion: N/A
+
+== Overview
+
+This document provides a summary of the [Maintainer's Guide] in the
+form of a checklist to help maintainers in their duties.
+
+== Start of Cycle
+
+* [ ] Create tag for beginning of cycle: `git tag -s cycle/X`
+* [ ] Push tag from above
+* [ ] Create `seen` branch for your mirror
+* [ ] Send email
+  * [ ] Subject: Release Cycle XXXX-XX-XX -- XXXX-XX-XX is the end of
+        the cycle
+  * [ ] Include URL to tag
+  * [ ] Include tag hash & commit hash
+  * [ ] Include URL to master
+  * [ ] Include URL to seen
+  * [ ] Include seen patches -- hash & tag name
+
+NOTE: all URL's above should point to your mirror of the
+`radicle-link` repository.
+
+== Daily
+
+* [ ] Reply to `Release Cycle XXXX-XX-XX`
+  * [ ] Inlcude what has been merged
+  * [ ] Inlcude what has been seen
+  * [ ] Inlcude what has needs more approval
+
+== End of Cycle
+
+* [ ] Generate shortlog `git shortlog $PREV_CYCLE $CYCLE_START`, where
+  `$CYCLE_START` is the `cycle/X` tag created at the beginning of the
+  cycle.
+* [ ] Create tag for end of cycle: `git tag -s cycle/XXXX-XX-XX`
+  * [ ] Includes breaking changes
+  * [ ] Includes new features
+  * [ ] Includes improvements
+  * [ ] Includes shortlog
+* Reply to `Release Cycle XXXX-XX-XX` -- includes tag message from
+  above
+
+== Patch Review
+
+* [ ] Add remote to mirror, e.g. `git remote add alexj https://github.com/alexjg/radicle-link.git`
+* [ ] Pull patch from remote
+* [ ] Checkout patch & create topic branch, e.g. `git checkout
+      patches/cobs`, `git checkout -b alex/patches/cobs`.
+* [ ] Review
+* [ ] Merge & push to `seen`
+
+== Patch Promotion
+
+* [ ] Ensure enough reviews have been made
+* [ ] Run `seen` on CI
+* [ ] If CI **passes**, then merge to `master`
+* [ ] If CI **does not pass**, then notify people of breakage
