@@ -1,0 +1,208 @@
+= RFC: Tracking Storage
+
+:author: @Fintan Halpenny, @Kim Altintop, @Alexander Simmerl
+:revdate: 2021-10-12
+:revremark: draft
+:toc: preamble
+
+* Author: {author}
+* Date: {revdate}
+* Status: {revremark}
+* Discussion: https://lists.sr.ht/~radicle-link/dev/%3Cc2aae5c561e6c1d3b75394de8d570209%40xla.is%3E
+
+== Motivation
+
+The motivation for this RFC is two-fold, as can be seen in the linked
+discussion. The first is the want to have a protocol mechanism for
+replicating a resource when only the URN is known. The second is the
+want to be able to configure the fetching of references for a given
+remote.
+
+== Overview
+
+Given the <<Motivation>>, this RFC proposes a replacement of how
+tracking is implemented at the time of writing. It will describe how
+the tracking relationships will be stored using git, and the format
+for the storage contents.
+
+While replication is stated as a motivation, it is out of scope for
+this RFC to propose any novel additions to replication of URNs. It
+will, however, propose a modification of the existing protocol
+semantics for replication when a peer receives a new gossip message.
+
+== Terminology and Conventions
+
+The key words "`MUST`", "`MUST NOT`", "`REQUIRED`", "`SHALL`", "`SHALL NOT`",
+"`SHOULD`", "`SHOULD NOT`", "`RECOMMENDED`", "`NOT RECOMMENDED`", "`MAY`", and
+"`OPTIONAL`" in this document are to be interpreted as described in <<RFC2119>>
+and <<RFC8174>> when, and only when, they appear in all capitals, as
+shown here.
+
+== Storage
+
+The base requirements for tracking are the capabilities of creating,
+updating, deleting, and reading the tracking entries along with their
+configurations. The keys for this storage are given by a URN and Peer
+ID pairing. The value stored for a given key is the configuration for
+that tracking entry. The capabilities that we wish to caputre
+are:
+
+. *track* a URN with an optional Peer ID
+. *untrack* a URN and Peer ID
+. *list* tracked URN and PeerIDs
+. *update* the configuration of a tracking entry for a given URN and
+Peer ID
+
+Any storage backend MUST implement these four capabilities, using URN
+and Peer IDs as keys. Where a tracking relationship is not using a
+Peer ID -- in the case that no Peer IDs are known -- a default MUST be
+established.
+
+== Configuration
+
+As mentioned in the <<Motivation>>, we wish to be able to configure
+which references we fetch for a given remote. The natural place to
+configure this is in the entry for URN/Peer ID pair.
+
+The configuration is REQUIRED to be a key/value format. The
+following scheme is REQUIRED to be adhered to:
+
+. `"data": bool`
+. `"cobs": "\*" | {<typename>: ("*" | [<object id>])}`
+
+[NOTE]
+======
+. `<typename>` is any valid name for a collaborative object.
+. `<object id>` is any valid collaborative object identifier.
+. `"*"` is the wildcard for matching all `"cobs"`.
+======
+
+If `"data"` is set to `true` then all non-`rad` data SHALL be
+replicated. If `"data"` is set to `false` then _only_ `rad` data SHALL
+be replicated.
+
+For every `<typename>` and set of ``<object id>``'s, these data SHALL
+be kept when fetching. The absence of a `<typename>` key SHALL mean
+that the `<typename>` is ignored when fetching. Similarly, the absence
+of an `<object id>` SHALL also mean given object will be ignored.
+
+The default configuration SHALL be to fetch all data and collaborative objects, i.e.
+[source,json,id="default-config"]
+{ "data": true, "cobs": "*" }
+
+=== Delegates
+
+The data provided by delegates is privileged, as it is the generally
+the canonical view of the data. It SHALL NOT be possible to filter out
+any of the data for a delegate Peer ID. Thus, all configurations for a
+delegate Peer ID SHALL be the <<default-config, default configuration>>.
+
+== Git Storage
+
+Given the outlines in <<Storage>> and <<Configuration>>, we propose
+the following implementation using git as the storage layer. The
+configuration SHALL be stored as a blob and to retrieve this blob we
+SHALL use a well formed reference name for a given URN and Peer ID.
+
+=== Tracking Reference
+
+The reference SHALL be of the form:
+
+----
+refs/rad/remotes/<namespace>/(<peer id> | default) <1> <2> <3>
+----
+<1> `<namespace>` is the multibase-encoded hash of the URN
+<2> `<peer id>` is the multibase-encoded public key of the peer
+<3> `default` is the value used when a `<peer id>` is not specified
+
+The reference MUST point to the SHA identifier of the blob that
+contains the configuration.
+
+=== Configuration Format
+
+The configuration is RECOMMENDED to use <<csjon, Canonical
+JSON>>. This provides a key/value format, while also being hash
+friendly for git purposes. If multiple configurations are equivalent,
+for example the default configuration, they can all be represented by
+the same SHA -- saving storage space.
+
+=== Tracking Semantics
+
+To *track* a new peer, the reference (see <<Tracking Reference>>) is
+created with the given configuration or default configuration if not
+specified.
+
+To *untrack* a peer, we remove the reference for the given URN and
+Peer ID. We then MAY prune any existing references under
+`refs/namespaces/<urn>/refs/remotes/<peer>`.
+
+To *list* the remotes for a given URN, we can use the refspec:
+----
+refs/rad/remotes/<urn>/*
+----
+
+To *list* the remotes for all URNs, we can use the refspec:
+----
+refs/rad/remotes/**/*
+----
+
+To *update* a configuration, the new configuration blob can be
+created and the reference SHALL point to the new SHA.
+
+== Replication
+
+At the time of writing the protocol has a mechanism for replicating
+interesting gossip. When a gossip message is received by the running
+peer it will replicate the changes if:
+
+1. The running peer is tracking the URN and Peer ID contained in the
+gossip message.
+2. The running peer has not received the git SHA inside the gossip
+message.
+
+We propose here that this be modified to account for the case where
+the running peer has tracked a URN without a Peer ID. Before the above
+conditions are check, first we check if:
+
+. The running peer is *only* tracking the `default` entry, and if so
+it SHALL replicate the URN.
+
+[NOTE]
+======
+For clarity, if there are more remotes under `refs/rad/remotes/<urn>`
+other than the `default` reference, then it SHALL follow the original
+steps.
+======
+
+== Appendix
+
+=== Current Implementation
+
+We note that implementation of tracking exists today. The current
+implementation utilises the git `<<config>>` file in the monorepo. For
+a URN/peer pairing it will create a `remote` entry in the `config`
+file. This entry will contain a `url` key/value, but this is not
+used. An example of one of these entries is shown below:
+
+[literal,options="nowrap"]
+--------
+[remote "hnrk8dpger17oxjqx4xhmcbkqpnkz78afztay/hyycq9t5dhhhh9i1q19u3gxhxquhhkcs78wad7xyg6so838m66nyqr"]
+    url = rad-p2p://hyycq9t5dhhhh9i1q19u3gxhxquhhkcs78wad7xyg6so838m66nyqq@hyycq9t5dhhhh9i1q19u3gxhxquhhkcs78wad7xyg6so838m66nyqr/hnrk8dpger17oxjqx4xhmcbkqpnkz78afztay.git?
+--------
+
+The tracking semantics for a URN/peer pair is achieved by reading and
+writing these entries in the git `config`.
+
+The downside to this approach is that if we would want to use the
+remote entries for anything else other than tracking remotes -- for
+example, limiting references fetched -- then access to the
+configuration becomes a point of contention for reads and writes. This
+is due to _all_ remotes being stored in a single file.
+
+[bibliography]
+== References
+
+* [[[RFC2119]]]: https://datatracker.ietf.org/doc/html/rfc2119
+* [[[RFC8174]]]: https://datatracker.ietf.org/doc/html/rfc8174
+* [[[cjson]]]: http://wiki.laptop.org/go/Canonical_JSON
+* [[[config]]]: https://git-scm.com/docs/git-config
