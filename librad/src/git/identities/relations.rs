@@ -6,6 +6,7 @@
 use std::convert::TryFrom as _;
 
 use either::Either;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     git::{
@@ -17,7 +18,7 @@ use crate::{
         Urn,
     },
     identities::{
-        relations::{Peer, Role, Status},
+        relations::{Peer, Status},
         Person,
         SomeIdentity,
     },
@@ -38,50 +39,101 @@ pub enum Error {
     UknownIdentity(Urn),
 }
 
-/// Determine the [`Role`] for [`SomeIdentity`] and [`PeerId`].
-///
-/// The rules for determining the role are:
-///   * If the peer is one of the delegates they are considred a
-///     [`Role::Maintainer`]
-///   * If the peer has made changes and published `rad/signed_refs` they are
-///     considered a [`Role::Contributor`]
-///   * Otherwise, they are considered a [`Role::Tracker`]
+/// The `rad/self` under a `Project`/`Person`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Persona<P> {
+    /// Generally the [`Person`] data found at `rad/self`.
+    person: P,
+    /// If the peer is a delegate, and which `PeerId` they are using for this
+    /// delegation.
+    ///
+    /// This field being set indicates that the peer has a significant role in
+    /// the `Project` or `Person`. This role can be analogised to the term
+    /// "maintainer".
+    delegation: Option<PeerId>,
+    /// The [`Refs`] the peer is advertising.
+    ///
+    /// This field being set indicates that the peer has a possible interest in
+    /// viewing and editing code collaboration artifacts located in this
+    /// `Project` or `Person`.
+    refs: Option<Refs>,
+}
+
+impl<P> Persona<P> {
+    pub fn new(person: P) -> Self {
+        Self {
+            person,
+            delegation: None,
+            refs: None,
+        }
+    }
+
+    pub fn map<Q>(self, f: impl FnOnce(P) -> Q) -> Persona<Q> {
+        Persona {
+            person: f(self.person),
+            delegation: self.delegation,
+            refs: self.refs,
+        }
+    }
+
+    pub fn person(&self) -> &P {
+        &self.person
+    }
+
+    pub fn delegation(&self) -> Option<PeerId> {
+        self.delegation
+    }
+
+    pub fn refs(&self) -> Option<&Refs> {
+        self.refs.as_ref()
+    }
+}
+
+/// Determine the [`Persona`] for [`SomeIdentity`] and [`PeerId`].
 ///
 /// If `peer` is `Either::Left` then we have the local `PeerId` and we can
 /// ignore it for looking at `rad/signed_refs`.
 ///
 /// If `peer` is `Either::Right` then it is a remote peer and we use it for
 /// looking at `refs/<remote>/rad/signed_refs`.
-pub fn role<S>(
+pub fn persona<S>(
     storage: &S,
-    urn: &Urn,
+    person: Person,
     identity: &SomeIdentity,
     peer: Either<PeerId, PeerId>,
-) -> Result<Role, Error>
+) -> Result<Persona<Person>, Error>
 where
     S: AsRef<storage::ReadOnly>,
 {
     let storage = storage.as_ref();
-    let role = if is_delegate(identity, urn, peer.into_inner())? {
-        Role::Maintainer
-    } else if Refs::load(storage, urn, peer.right())?.map_or(false, |refs| !refs.heads.is_empty()) {
-        Role::Contributor
-    } else {
-        Role::Tracker
-    };
-
-    Ok(role)
+    let mut persona = Persona::new(person);
+    let urn = identity.urn();
+    persona.delegation = is_delegate(identity, &urn, peer.into_inner())?;
+    persona.refs = Refs::load(storage, &urn, peer.right())?;
+    Ok(persona)
 }
 
-fn is_delegate(identity: &SomeIdentity, urn: &Urn, peer: PeerId) -> Result<bool, Error> {
+fn is_delegate(identity: &SomeIdentity, urn: &Urn, peer: PeerId) -> Result<Option<PeerId>, Error> {
     match identity {
         SomeIdentity::Project(ref project) => {
-            Ok(project.delegations().owner(peer.as_public_key()).is_some())
+            if project.delegations().owner(peer.as_public_key()).is_some() {
+                Ok(Some(peer))
+            } else {
+                Ok(None)
+            }
         },
-        SomeIdentity::Person(ref person) => Ok(person.delegations().contains(peer.as_public_key())),
+        SomeIdentity::Person(ref person) => {
+            if person.delegations().contains(peer.as_public_key()) {
+                Ok(Some(peer))
+            } else {
+                Ok(None)
+            }
+        },
         _ => Err(Error::UknownIdentity(urn.clone())),
     }
 }
+
+pub type Tracked<P> = Vec<Peer<Status<Persona<P>>>>;
 
 /// Builds the list of tracked peers determining their relation to the `urn`
 /// provided.
@@ -92,7 +144,7 @@ fn is_delegate(identity: &SomeIdentity, urn: &Urn, peer: PeerId) -> Result<bool,
 ///
 /// If their `rad/self` is under the tree of remotes, then they have been
 /// replicated, signified by [`Status::Replicated`].
-pub fn tracked<S>(storage: &S, urn: &Urn) -> Result<Vec<Peer<Status<Person>>>, Error>
+pub fn tracked<S>(storage: &S, urn: &Urn) -> Result<Tracked<Person>, Error>
 where
     S: AsRef<storage::ReadOnly>,
 {
@@ -109,8 +161,8 @@ where
             let malkovich = identities::person::get(storage, &rad_self)?
                 .ok_or(identities::Error::NotFound(rad_self))?;
 
-            let role = role(storage, urn, &identity, Either::Right(peer_id))?;
-            Status::replicated(role, malkovich)
+            let persona = persona(storage, malkovich, &identity, Either::Right(peer_id))?;
+            Status::replicated(persona)
         } else {
             Status::NotReplicated
         };

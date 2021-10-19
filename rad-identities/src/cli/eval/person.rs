@@ -148,7 +148,7 @@ fn eval_tracked(profile: &Profile, urn: Urn) -> anyhow::Result<()> {
     let storage = storage::read_only(profile)?;
     let peers = person::tracked(&storage, &urn)?
         .into_iter()
-        .map(|peer| peer.map(|status| status.map(person::Display::from)))
+        .map(|peer| peer.map(|status| status.map(|persona| persona.map(person::Display::from))))
         .collect::<Vec<_>>();
     println!("{}", serde_json::to_string(&peers)?);
     Ok(())
