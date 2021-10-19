@@ -21,7 +21,6 @@ use librad::{
         delegation::{indirect, Indirect},
         git::Revision,
         payload::{self, KeyOrUrn, ProjectPayload},
-        relations::{Peer, Status},
         IndirectDelegation,
     },
     paths::Paths,
@@ -279,7 +278,7 @@ pub fn review() {
     todo!()
 }
 
-pub fn tracked<S>(storage: &S, urn: &Urn) -> Result<Vec<Peer<Status<Person>>>, Error>
+pub fn tracked<S>(storage: &S, urn: &Urn) -> Result<relations::Tracked<Person>, Error>
 where
     S: AsRef<ReadOnly>,
 {
