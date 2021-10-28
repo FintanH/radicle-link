@@ -17,6 +17,9 @@ use crate::PeerId;
 
 pub use crate::identities::git::Urn;
 
+pub mod config;
+mod r#impl;
+
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {

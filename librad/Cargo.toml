@@ -99,6 +99,10 @@ features = ["git2"]
 [dependencies.link-identities]
 path = "../link-identities"
 
+[dependencies.link-tracking]
+path = "../link-tracking"
+features = ["cjson"]
+
 [dependencies.radicle-data]
 path = "../data"
 features = ["minicbor"]
