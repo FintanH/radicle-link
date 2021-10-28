@@ -1,0 +1,20 @@
+[package]
+name = "link-tracking"
+version = "0.1.0"
+authors = ["Fintan Halpenny <fintan.halpenny@gmail.com>"]
+edition = "2018"
+license = "GPL-3.0-or-later"
+
+[features]
+cjson = [ "link-canonical" ]
+
+[dependencies.link-canonical]
+path = "../link-canonical"
+features = [ "derive" ]
+optional = true
+
+[dependencies.link-crypto]
+path = "../link-crypto"
+
+[dependencies.link-identities]
+path = "../link-identities"
