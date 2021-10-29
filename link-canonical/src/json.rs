@@ -25,6 +25,19 @@ pub enum Value {
     Null,
 }
 
+impl Value {
+    pub fn ty_name(&self) -> String {
+        match self {
+            Value::Object(map) => format!("object, keys: {:?}", map.0.keys().collect::<Vec<_>>()),
+            Value::Array(_) => "array".to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Number(_) => "number".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::Null => "null".to_string(),
+        }
+    }
+}
+
 impl FromStr for Value {
     type Err = String;
 
@@ -93,6 +106,12 @@ impl<T: ToCjson> ToCjson for BTreeMap<Cstring, T> {
 // Array
 
 impl<T: ToCjson + Ord> ToCjson for BTreeSet<T> {
+    fn into_cjson(self) -> Value {
+        into_array(self.into_iter())
+    }
+}
+
+impl<T: ToCjson> ToCjson for Vec<T> {
     fn into_cjson(self) -> Value {
         into_array(self.into_iter())
     }
@@ -192,7 +211,7 @@ impl ToCjson for bool {
 fn into_array<I, T>(it: I) -> Value
 where
     I: Iterator<Item = T>,
-    T: Ord + ToCjson,
+    T: ToCjson,
 {
     Value::Array(it.map(ToCjson::into_cjson).collect())
 }
@@ -222,6 +241,18 @@ impl Map {
         self.0.insert(key, val)
     }
 
+    pub fn get(&self, key: &Cstring) -> Option<&Value> {
+        self.0.get(key)
+    }
+
+    pub fn remove(&mut self, key: &Cstring) -> Option<Value> {
+        self.0.remove(key)
+    }
+
+    pub fn entry(&mut self, key: Cstring) -> Entry<'_> {
+        Entry(self.0.entry(key))
+    }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -234,6 +265,35 @@ impl Map {
         MapIter {
             iter: self.0.iter(),
         }
+    }
+}
+
+pub struct Entry<'a>(btree_map::Entry<'a, Cstring, Value>);
+
+impl<'a> Entry<'a> {
+    pub fn and_modify<F>(self, f: F) -> Self
+    where
+        F: FnOnce(&mut Value),
+    {
+        Self(self.0.and_modify(f))
+    }
+
+    pub fn or_insert(self, default: Value) -> &'a mut Value {
+        self.0.or_insert(default)
+    }
+
+    pub fn or_insert_with<F>(self, default: F) -> &'a mut Value
+    where
+        F: FnOnce() -> Value,
+    {
+        self.0.or_insert_with(default)
+    }
+
+    pub fn or_insert_with_key<F>(self, default: F) -> &'a mut Value
+    where
+        F: FnOnce(&Cstring) -> Value,
+    {
+        self.0.or_insert_with_key(default)
     }
 }
 
