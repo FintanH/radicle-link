@@ -16,6 +16,7 @@ use std_ext::result::ResultExt as _;
 
 use crate::{
     git::{
+        identities,
         storage::{self, glob, read::ReadOnlyStorage as _, Storage},
         types::Namespace,
     },
@@ -60,6 +61,17 @@ impl Tracking<Oid, Cstring, Cstring> for Storage {
             }
         }
 
+        let config = if let Some(peer) = peer {
+            match GuardPeer::new(self, urn, peer) {
+                GuardPeer::Me => return Err(Error::SelfReferential),
+                GuardPeer::Delegate => Config::default(),
+                GuardPeer::Unknown => Config::default(),
+                GuardPeer::Other => config.unwrap_or_default(),
+            }
+        } else {
+            config.unwrap_or_default()
+        };
+
         let refl = RefLike::from(Reference::new(urn, peer));
         let raw = self.as_raw();
 
@@ -71,12 +83,17 @@ impl Tracking<Oid, Cstring, Cstring> for Storage {
             return Ok(false);
         }
 
-        let config = config.unwrap_or_default();
         // NOTE: unwrap is safe because error side is void
         let blob = raw.blob(&config.canonical_form().unwrap())?;
         let mut builder = raw.treebuilder(None)?;
         builder.insert(blob.to_string(), blob, 0o100_644)?;
-        builder.write()?;
+        let oid = builder.write()?;
+        raw.reference(
+            refl.as_str(),
+            oid,
+            false,
+            &format!("created tracking configuration {}", blob),
+        )?;
 
         Ok(true)
     }
@@ -112,8 +129,30 @@ impl Tracking<Oid, Cstring, Cstring> for Storage {
         Ok(true)
     }
 
-    fn update(&self, _urn: &Urn, _peer: PeerId, _config: Config) -> Result<(), Self::Error> {
-        todo!()
+    fn update(&self, urn: &Urn, peer: PeerId, config: Config) -> Result<(), Self::Error> {
+        let refl = RefLike::from(Reference::new(urn, peer));
+        let backend = self.as_raw();
+
+        let mut reference = match backend
+            .find_reference(refl.as_str())
+            .map(Some)
+            .or_matches::<git2::Error, _, _>(is_not_found_err, || Ok(None))?
+        {
+            None => return Ok(()),
+            Some(r) => r,
+        };
+
+        // NOTE: unwrap is safe because error side is void
+        let blob = backend.blob(&config.canonical_form().unwrap())?;
+        let mut builder = backend.treebuilder(None)?;
+        builder.insert(blob.to_string(), blob, 0o100_644)?;
+        let oid = builder.write()?;
+
+        reference.set_target(
+            oid,
+            &format!("updated {} with configuration {}", refl, blob),
+        )?;
+        Ok(())
     }
 
     fn tracked(&self, filter_by: Option<&Urn>) -> Result<Vec<Tracked>, Self::Error> {
@@ -259,4 +298,31 @@ fn tracked_from_reference(r: git2::Reference<'_>) -> Result<Tracked, tracked::Er
         Remote::Default => Tracked::Default { urn, config },
         Remote::Peer(peer) => Tracked::Peer { urn, peer, config },
     })
+}
+
+enum GuardPeer {
+    Me,
+    Delegate,
+    Unknown,
+    Other,
+}
+
+impl GuardPeer {
+    fn new<S>(storage: S, urn: &Urn, peer: PeerId) -> GuardPeer
+    where
+        S: AsRef<storage::ReadOnly>,
+    {
+        let storage = storage.as_ref();
+        let me = storage.peer_id();
+
+        if &peer == me {
+            return GuardPeer::Me;
+        }
+
+        match identities::any::get(storage, urn).ok().flatten() {
+            Some(identity) if identity.is_delegate(*peer) => Self::Delegate,
+            Some(_) => Self::Other,
+            None => Self::Unknown,
+        }
+    }
 }
