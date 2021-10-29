@@ -6,7 +6,10 @@ edition = "2018"
 license = "GPL-3.0-or-later"
 
 [features]
-cjson = [ "link-canonical" ]
+cjson = [ "link-canonical", "thiserror" ]
+
+[dependencies]
+thiserror = { version = "1.0", optional = true }
 
 [dependencies.link-canonical]
 path = "../link-canonical"

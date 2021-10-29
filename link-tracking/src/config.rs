@@ -1,65 +1,94 @@
-use std::{collections::BTreeMap, fmt};
+pub mod cobs;
+pub mod data;
 
-#[cfg(feature = "cjson")]
-use link_canonical::{
-    json::{ToCjson, Value},
-    Cstring,
-};
+pub use cobs::{Cobs, Object};
+pub use data::Data;
 
-pub trait Configure: Default {
-    type Typename;
-    type ObjectId;
-
-    fn set_data(&mut self, data: Data);
-    fn set_cobs(&mut self, cobs: Cobs<Self::Typename, Self::ObjectId>);
-    fn filter_cob(&mut self, typename: Self::Typename, object: Object<Self::ObjectId>);
+#[derive(Clone, Debug)]
+pub struct Config<Typename, ObjectId> {
+    pub data: Data,
+    pub cobs: Cobs<Typename, ObjectId>,
 }
 
-pub enum Object<Id> {
-    Wildcard,
-    Identifier(Id),
-}
-
-pub enum Key {
-    Cobs,
-    Data,
-}
-
-impl fmt::Display for Key {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cobs => write!(f, "cobs"),
-            Self::Data => write!(f, "data"),
+impl<Ty, Id> Default for Config<Ty, Id> {
+    fn default() -> Self {
+        Self {
+            data: Data::default(),
+            cobs: Cobs::default(),
         }
     }
 }
 
-#[cfg_attr(feature = "cjson", derive(ToCjson))]
-pub struct Data(pub bool);
-
-impl Default for Data {
-    fn default() -> Self {
-        Self(true)
-    }
-}
-
-pub enum Cobs<Type, ObjectId> {
-    WildCard,
-    Filters(BTreeMap<Type, ObjectId>),
-}
-
-impl<T, O> Default for Cobs<T, O> {
-    fn default() -> Self {
-        Self::WildCard
-    }
-}
-
 #[cfg(feature = "cjson")]
-impl<ObjectId: ToCjson> ToCjson for Cobs<Cstring, ObjectId> {
-    fn into_cjson(self) -> Value {
-        match self {
-            Self::WildCard => Value::String("*".into()),
-            Self::Filters(filters) => filters.into_cjson(),
+pub mod cjson {
+    use std::convert::TryFrom;
+
+    use link_canonical::{
+        json::{Map, ToCjson, Value},
+        Canonical,
+        Cstring,
+    };
+
+    use super::{cobs, data, Cobs, Config, Data};
+
+    #[derive(Debug, Error)]
+    pub enum Error {
+        #[error("missing `\"{0}\"` key")]
+        MissingKey(String),
+        #[error("expected type {expected}, but found {found}")]
+        MismatchedTy { expected: String, found: String },
+        #[error(transparent)]
+        Cobs(#[from] cobs::cjson::error::Cobs),
+        #[error(transparent)]
+        Data(#[from] data::cjson::Error),
+    }
+
+    impl<Id: ToCjson> ToCjson for Config<Cstring, Id> {
+        fn into_cjson(self) -> Value {
+            Value::Object(
+                vec![
+                    ("data".into(), self.data.into_cjson()),
+                    ("cobs".into(), self.cobs.into_cjson()),
+                ]
+                .into_iter()
+                .collect::<Map>(),
+            )
+        }
+    }
+
+    impl<Id: ToCjson + Clone> Canonical for Config<Cstring, Id> {
+        type Error = <Value as Canonical>::Error;
+
+        fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
+            self.clone().into_cjson().canonical_form()
+        }
+    }
+
+    impl TryFrom<&Value> for Config<Cstring, Cstring> {
+        type Error = Error;
+
+        fn try_from(val: &Value) -> Result<Self, Self::Error> {
+            const COBS_KEY: &str = "cobs";
+            const DATA_KEY: &str = "data";
+
+            match val {
+                Value::Object(map) => {
+                    let cobs = map
+                        .get(&COBS_KEY.into())
+                        .ok_or(Error::MissingKey(COBS_KEY.into()))?;
+                    let data = map
+                        .get(&DATA_KEY.into())
+                        .ok_or(Error::MissingKey(DATA_KEY.into()))?;
+
+                    let data = Data::try_from(data)?;
+                    let cobs = Cobs::try_from(cobs)?;
+                    Ok(Self { data, cobs })
+                },
+                val => Err(Error::MismatchedTy {
+                    expected: "object, keys: [\"cobs\", \"data\"]".to_string(),
+                    found: val.ty_name(),
+                }),
+            }
         }
     }
 }
