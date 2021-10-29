@@ -83,6 +83,20 @@ impl SomeIdentity {
             Self::Person(person) => SomePayload::Person(person.payload().clone()),
         }
     }
+
+    pub fn is_delegate(&self, peer: PublicKey) -> bool {
+        match self {
+            Self::Project(project) => project
+                .delegations()
+                .into_iter()
+                .find(|e| match e {
+                    Either::Left(key) => **key == peer,
+                    Either::Right(indirect) => indirect.delegations().contains(&peer),
+                })
+                .is_some(),
+            Self::Person(person) => person.delegations().contains(&peer),
+        }
+    }
 }
 
 pub type SignedPerson = SignedIdentity<PersonDoc>;
