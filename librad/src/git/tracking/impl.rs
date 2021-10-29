@@ -3,10 +3,12 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
+use std::convert::TryFrom as _;
+
 use thiserror::Error;
 
 use git_ext::{is_not_found_err, Oid, RefLike};
-use link_canonical::{json::Value, Canonical as _};
+use link_canonical::{json::Value, Canonical as _, Cstring};
 use link_crypto::PeerId;
 use link_identities::git::Urn;
 use link_tracking::Tracking;
@@ -20,7 +22,7 @@ use crate::{
     reflike,
 };
 
-use super::config::Config;
+use super::config::{self, Config};
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -40,7 +42,7 @@ pub enum Error {
 
 pub type Tracked = link_tracking::Tracked<Oid, Config>;
 
-impl Tracking<Oid> for Storage {
+impl Tracking<Oid, Cstring, Cstring> for Storage {
     type Error = Error;
     type Config = Config;
 
@@ -48,7 +50,7 @@ impl Tracking<Oid> for Storage {
         &self,
         urn: &Urn,
         peer: Option<PeerId>,
-        config: Option<Self::Config>,
+        config: Option<Config>,
     ) -> Result<bool, Self::Error> {
         let local_peer = self.peer_id();
 
@@ -110,7 +112,7 @@ impl Tracking<Oid> for Storage {
         Ok(true)
     }
 
-    fn update(&self, _urn: &Urn, _peer: PeerId, _config: Self::Config) -> Result<(), Self::Error> {
+    fn update(&self, _urn: &Urn, _peer: PeerId, _config: Config) -> Result<(), Self::Error> {
         todo!()
     }
 
@@ -214,6 +216,8 @@ pub mod tracked {
         MissingNamespace,
         #[error(transparent)]
         Urn(#[from] urn::error::DecodeId<FromMultihashError>),
+        #[error(transparent)]
+        Config(#[from] config::Error),
         #[error("failed to parse Canonical JSON: {0}")]
         Cjson(String),
     }
@@ -249,7 +253,7 @@ fn tracked_from_reference(r: git2::Reference<'_>) -> Result<Tracked, tracked::Er
         .unwrap()
         .parse::<Value>()
         .map_err(Error::Cjson)
-        .map(Config)?;
+        .and_then(|val| Config::try_from(&val).map_err(Error::from))?;
 
     Ok(match remote {
         Remote::Default => Tracked::Default { urn, config },
