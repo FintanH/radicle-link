@@ -25,6 +25,19 @@ pub enum Value {
     Null,
 }
 
+impl Value {
+    pub fn ty_name(&self) -> String {
+        match self {
+            Value::Object(map) => format!("object, keys: {:?}", map.0.keys().collect::<Vec<_>>()),
+            Value::Array(_) => "array".to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Number(_) => "number".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::Null => "null".to_string(),
+        }
+    }
+}
+
 impl FromStr for Value {
     type Err = String;
 
