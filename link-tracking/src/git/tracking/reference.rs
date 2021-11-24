@@ -1,12 +1,19 @@
-use std::{
-    convert::TryFrom,
-    fmt,
-    path::{Component, Path},
-};
+// Copyright © 2021 The Radicle Link Contributors
+//
+// This file is part of radicle-link, distributed under the GPLv3 with Radicle
+// Linking Exception. For full terms see the included LICENSE file.
 
-use git_repository::refs::{name, FullName};
-use link_crypto::PeerId;
-use link_identities::git::Urn;
+use std::{convert::TryFrom, fmt, str::FromStr};
+
+use multihash::Multihash;
+
+use link_crypto::{peer, PeerId};
+use link_identities::urn::{HasProtocol, Urn};
+use radicle_git_ext::RefLike;
+
+pub fn base() -> RefLike {
+    reflike!("refs/rad/remotes")
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Remote {
@@ -23,28 +30,40 @@ impl fmt::Display for Remote {
     }
 }
 
+impl FromStr for Remote {
+    type Err = peer::conversion::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(Self::Default),
+            _ => s.parse().map(Self::Peer),
+        }
+    }
+}
+
 impl Default for Remote {
     fn default() -> Self {
         Self::Default
     }
 }
 
-impl<'a> TryFrom<&'a Remote> for FullName {
-    type Error = name::Error;
-
-    fn try_from(remote: &'a Remote) -> Result<Self, Self::Error> {
-        let remote = remote.to_string();
-        Self::try_from(remote.as_str())
+impl From<&Remote> for RefLike {
+    fn from(remote: &Remote) -> Self {
+        match remote {
+            Remote::Default => reflike!("default"),
+            Remote::Peer(peer) => RefLike::from(peer),
+        }
     }
 }
 
-pub struct Reference {
+#[derive(Debug)]
+pub struct Reference<R> {
     pub remote: Remote,
-    pub urn: Urn,
+    pub urn: Urn<R>,
 }
 
-impl Reference {
-    pub fn new<P>(urn: Urn, peer: P) -> Self
+impl<R> Reference<R> {
+    pub fn new<P>(urn: Urn<R>, peer: P) -> Self
     where
         P: Into<Option<PeerId>>,
     {
@@ -53,90 +72,114 @@ impl Reference {
             urn,
         }
     }
+
+    pub fn as_ref(&self) -> ReferenceRef<'_, R> {
+        ReferenceRef {
+            remote: self.remote,
+            urn: &self.urn,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
-pub struct ReferenceRef<'a> {
+pub struct ReferenceRef<'a, R> {
     pub remote: Remote,
-    pub namespace: &'a Urn,
+    pub urn: &'a Urn<R>,
 }
 
-impl<'a> ReferenceRef<'a> {
-    pub fn new<P>(urn: &'a Urn, peer: P) -> Self
+impl<'a, R> ReferenceRef<'a, R> {
+    pub fn new<P>(urn: &'a Urn<R>, peer: P) -> Self
     where
         P: Into<Option<PeerId>>,
     {
         Self {
             remote: peer.into().map(Remote::Peer).unwrap_or_default(),
-            namespace: urn,
+            urn,
         }
     }
 
-    pub fn into_owned(&self) -> Reference {
+    pub fn into_owned(&self) -> Reference<R>
+    where
+        R: Clone,
+    {
         Reference {
-            remote: self.remote.clone(),
-            urn: self.namespace.clone(),
+            remote: self.remote,
+            urn: self.urn.clone(),
         }
     }
 }
 
-impl<'a> TryFrom<ReferenceRef<'a>> for FullName {
-    type Error = name::Error;
-
-    fn try_from(refl: ReferenceRef<'a>) -> Result<Self, Self::Error> {
-        Self::try_from(
-            format!(
-                "refs/rad/remotes/{}/{}",
-                refl.namespace.encode_id(),
-                refl.remote
-            )
-            .as_str(),
-        )
+impl<'a, R> From<&ReferenceRef<'a, R>> for RefLike
+where
+    R: Clone + HasProtocol,
+    &'a R: Into<Multihash>,
+{
+    fn from(r: &ReferenceRef<'a, R>) -> Self {
+        let namespace =
+            RefLike::try_from(r.urn.encode_id()).expect("namespace should be valid ref component");
+        base().join(namespace).join(&r.remote)
     }
 }
 
 pub mod error {
+    use link_crypto::peer;
+
     use thiserror::Error;
 
-    use link_crypto::peer;
-    use link_identities::urn::error::DecodeId;
-    use radicle_git_ext::FromMultihashError;
-
     #[derive(Debug, Error)]
-    pub enum Path {
-        #[error("the remote component is missing, expected `default` or valid peer id")]
-        MissingRemote,
-        #[error("the namespace component is missing")]
-        MissingNamespace,
+    pub enum Parse {
+        #[error("expected prefix `refs/rad/remotes`")]
+        WrongPrefix,
+        #[error("missing path component `{0}`")]
+        MissingComponent(&'static str),
         #[error(transparent)]
         Peer(#[from] peer::conversion::Error),
         #[error(transparent)]
-        Urn(#[from] DecodeId<FromMultihashError>),
-        #[error("could not convert path component to utf-8")]
-        Malformed,
+        Urn(Box<dyn std::error::Error + Send + Sync + 'static>),
     }
 }
 
-impl<'a> TryFrom<&'a Path> for Reference {
-    type Error = error::Path;
+impl<R> FromStr for Reference<R>
+where
+    R: TryFrom<Multihash>,
+    R::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Err = error::Parse;
 
-    fn try_from(path: &'a Path) -> Result<Self, Self::Error> {
-        let mut components = path.components();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let suffix = s
+            .strip_prefix("refs/rad/remotes/")
+            .ok_or(error::Parse::WrongPrefix)?;
 
-        let remote = if let Some(Component::Normal(remote)) = components.next_back() {
-            match remote.to_str().ok_or_else(|| error::Path::Malformed)? {
-                "default" => Remote::Default,
-                peer => peer.parse::<PeerId>().map(Remote::Peer)?,
-            }
+        let mut components = suffix.split('/');
+
+        let urn = if let Some(urn) = components.next() {
+            Urn::try_from_id(urn).map_err(|e| error::Parse::Urn(e.into()))?
         } else {
-            return Err(error::Path::MissingRemote);
+            return Err(error::Parse::MissingComponent("<urn>"));
         };
 
-        let urn = if let Some(Component::Normal(namespace)) = components.next_back() {
-            Urn::try_from_id(namespace.to_str().unwrap())?
+        let remote = if let Some(remote) = components.next() {
+            remote.parse()?
         } else {
-            return Err(error::Path::MissingNamespace);
+            return Err(error::Parse::MissingComponent("(default | <peer>)"));
         };
-        Ok(Reference { urn, remote })
+
+        Ok(Self { remote, urn })
+    }
+}
+
+impl<'a, R> fmt::Display for ReferenceRef<'a, R>
+where
+    R: HasProtocol,
+    &'a R: Into<Multihash>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "refs/rad/remotes/{}/{}",
+            self.urn.encode_id(),
+            self.remote
+        )
     }
 }

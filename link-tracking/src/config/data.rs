@@ -36,7 +36,7 @@ pub mod cjson {
                 Value::Bool(flag) => Ok(Self(*flag)),
                 val => Err(Error::MismatchedTy {
                     expected: "bool".to_string(),
-                    found: val.ty_name(),
+                    found: val.ty_name().to_string(),
                 }),
             }
         }

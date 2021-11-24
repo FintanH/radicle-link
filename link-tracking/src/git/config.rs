@@ -1,114 +1,126 @@
-use std::{convert::TryFrom, str};
+// Copyright © 2021 The Radicle Link Contributors
+//
+// This file is part of radicle-link, distributed under the GPLv3 with Radicle
+// Linking Exception. For full terms see the included LICENSE file.
 
-use git_repository::easy::{object::Kind, ObjectRef};
+use std::convert::TryFrom;
 
 use link_canonical::{
-    json::{Map, ToCjson, Value},
+    json::{ToCjson, Value},
     Canonical,
     Cstring,
 };
 
-use crate::config::{self, Cobs, Data};
+use crate::config;
 
-pub type Config = config::Config<Cstring, Cstring>;
+pub type Config = config::Config<TypeName, ObjectId>;
 
-pub mod error {
-    use git_repository::ObjectId;
-    use thiserror::Error;
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TypeName(pub cob::TypeName);
 
-    use crate::config::{cobs, data};
-
-    #[derive(Debug, Error)]
-    pub enum Json {
-        #[error("missing `\"{0}\"` key")]
-        MissingKey(String),
-        #[error("expected type {expected}, but found {found}")]
-        MismatchedTy { expected: String, found: String },
-        #[error(transparent)]
-        Cobs(#[from] cobs::cjson::error::Cobs),
-        #[error(transparent)]
-        Data(#[from] data::cjson::Error),
-    }
-
-    #[derive(Debug, Error)]
-    pub enum Git {
-        #[error("could not parse config at {oid}")]
-        Parse {
-            oid: ObjectId,
-            #[source]
-            reason: Box<dyn std::error::Error + 'static + Send + Sync>,
-        },
-        #[error(transparent)]
-        Config(#[from] Json),
+impl From<&TypeName> for Cstring {
+    fn from(ty: &TypeName) -> Self {
+        Self::from(ty.0.to_string())
     }
 }
 
-impl<Id: ToCjson + Ord> ToCjson for config::Config<Cstring, Id> {
-    fn into_cjson(self) -> Value {
-        Value::Object(
-            vec![
-                ("data".into(), self.data.into_cjson()),
-                ("cobs".into(), self.cobs.into_cjson()),
-            ]
-            .into_iter()
-            .collect::<Map>(),
-        )
+impl TryFrom<Cstring> for TypeName {
+    type Error = cob::error::TypeNameParse;
+
+    fn try_from(ty: Cstring) -> Result<Self, Self::Error> {
+        ty.as_str().parse().map(TypeName)
     }
 }
 
-impl<Id: ToCjson + Ord + Clone> Canonical for config::Config<Cstring, Id> {
+impl From<TypeName> for Cstring {
+    fn from(ty: TypeName) -> Self {
+        Self::from(ty.0.to_string())
+    }
+}
+
+impl From<&TypeName> for Value {
+    fn from(ty: &TypeName) -> Self {
+        Value::String(Cstring::from(ty))
+    }
+}
+
+impl From<TypeName> for Value {
+    fn from(ty: TypeName) -> Self {
+        Value::String(Cstring::from(ty))
+    }
+}
+
+impl Canonical for TypeName {
     type Error = <Value as Canonical>::Error;
 
     fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
-        self.clone().into_cjson().canonical_form()
+        Value::from(self).canonical_form()
     }
 }
 
-impl TryFrom<&Value> for config::Config<Cstring, Cstring> {
-    type Error = error::Json;
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ObjectId(pub cob::ObjectId);
 
-    fn try_from(val: &Value) -> Result<Self, Self::Error> {
-        use error::Json as Error;
+impl From<&ObjectId> for Cstring {
+    fn from(ty: &ObjectId) -> Self {
+        Self::from(ty.0.to_string())
+    }
+}
 
-        const COBS_KEY: &str = "cobs";
-        const DATA_KEY: &str = "data";
+impl From<ObjectId> for Cstring {
+    fn from(ty: ObjectId) -> Self {
+        Self::from(ty.0.to_string())
+    }
+}
 
-        match val {
-            Value::Object(map) => {
-                let cobs = map
-                    .get(&COBS_KEY.into())
-                    .ok_or_else(|| Error::MissingKey(COBS_KEY.into()))?;
-                let data = map
-                    .get(&DATA_KEY.into())
-                    .ok_or_else(|| Error::MissingKey(DATA_KEY.into()))?;
+impl From<&ObjectId> for Value {
+    fn from(ty: &ObjectId) -> Self {
+        Value::String(Cstring::from(ty))
+    }
+}
 
-                let data = Data::try_from(data)?;
-                let cobs = Cobs::try_from(cobs)?;
-                Ok(Self { data, cobs })
-            },
-            val => Err(Error::MismatchedTy {
-                expected: "object, keys: [\"cobs\", \"data\"]".to_string(),
-                found: val.ty_name(),
+impl From<ObjectId> for Value {
+    fn from(ty: ObjectId) -> Self {
+        Value::String(Cstring::from(ty))
+    }
+}
+
+impl TryFrom<Value> for ObjectId {
+    type Error = error::Object;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(id) => Ok(id.as_str().parse().map(ObjectId)?),
+            val => Err(error::Object::MismatchedTy {
+                expected: "string representing object identifier".into(),
+                found: val.ty_name().into(),
             }),
         }
     }
 }
 
-impl<'a, A> TryFrom<&'a ObjectRef<'a, A>> for config::Config<Cstring, Cstring> {
-    type Error = error::Git;
+impl Canonical for ObjectId {
+    type Error = <Value as Canonical>::Error;
 
-    fn try_from(obj: &'a ObjectRef<'a, A>) -> Result<Self, Self::Error> {
-        use error::Git as Error;
+    fn canonical_form(&self) -> Result<Vec<u8>, Self::Error> {
+        Value::from(self).canonical_form()
+    }
+}
 
-        debug_assert!(obj.kind == Kind::Blob);
+impl ToCjson for ObjectId {
+    fn into_cjson(self) -> Value {
+        Value::from(self)
+    }
+}
 
-        let val = str::from_utf8(obj.as_ref())
-            .unwrap()
-            .parse::<Value>()
-            .map_err(|reason| Error::Parse {
-                oid: obj.id,
-                reason: reason.into(),
-            })?;
-        Ok(Self::try_from(&val)?)
+mod error {
+    use thiserror::Error;
+
+    #[derive(Debug, Error)]
+    pub enum Object {
+        #[error("expected type {expected}, but found {found}")]
+        MismatchedTy { expected: String, found: String },
+        #[error(transparent)]
+        Parse(#[from] cob::error::ParseObjectId),
     }
 }

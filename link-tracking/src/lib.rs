@@ -8,9 +8,11 @@
 #[macro_use]
 extern crate link_canonical;
 
+#[macro_use]
+extern crate radicle_macros;
+
 pub mod config;
 pub mod git;
-pub mod peer;
 pub mod tracking;
 
-pub use tracking::{Read, Tracked, Tracking, Write};
+pub use tracking::Tracked;
