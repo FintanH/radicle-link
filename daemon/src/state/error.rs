@@ -98,9 +98,17 @@ pub enum Error {
     #[error(transparent)]
     StorageConfig(#[from] librad::git::storage::config::Error),
 
-    /// An error occurred when attempting to track or untrack a peer.
+    /// An error occurred when attempting to track a peer.
     #[error(transparent)]
-    Tracking(#[from] librad::git::tracking::Error),
+    Track(#[from] link_tracking::git::tracking::error::Track),
+
+    /// An error occurred when attempting to get tracked peers.
+    #[error(transparent)]
+    Tracked(#[from] link_tracking::git::tracking::error::Tracked),
+
+    /// An error occurred when attempting to untrack a peer.
+    #[error(transparent)]
+    Untrack(#[from] link_tracking::git::tracking::error::Untrack),
 
     /// Attempted to create an identity that already exists.
     #[error("the URN `{0}` already exists")]

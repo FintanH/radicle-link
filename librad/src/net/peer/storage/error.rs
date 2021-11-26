@@ -6,7 +6,7 @@
 use thiserror::Error;
 
 use crate::{
-    git::{self, replication, storage, storage::fetcher, tracking},
+    git::{self, replication, storage, storage::fetcher},
     PeerId,
 };
 
@@ -20,9 +20,6 @@ pub enum Error {
     RateLimited { remote_peer: PeerId, urn: git::Urn },
 
     #[error(transparent)]
-    Tracking(#[from] tracking::Error),
-
-    #[error(transparent)]
     Replication(#[from] replication::Error),
 
     #[error("unable to obtain fetcher")]
@@ -33,4 +30,7 @@ pub enum Error {
 
     #[error(transparent)]
     Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    IsTracked(#[from] link_tracking::git::tracking::error::Get),
 }

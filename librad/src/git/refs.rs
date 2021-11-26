@@ -186,9 +186,6 @@ pub mod stored {
         Signing(#[from] signing::Error),
 
         #[error(transparent)]
-        Track(#[from] tracking::Error),
-
-        #[error(transparent)]
         Refname(#[from] reference::name::Error),
 
         #[error(transparent)]
@@ -202,6 +199,9 @@ pub mod stored {
 
         #[error(transparent)]
         Git(#[from] git2::Error),
+
+        #[error(transparent)]
+        Tracked(#[from] link_tracking::git::tracking::error::Tracked),
     }
 }
 
@@ -299,7 +299,8 @@ impl Refs {
             }
         }
 
-        let mut remotes = tracking::tracked(storage, urn)?.collect::<Remotes<PeerId>>();
+        let mut remotes = tracking::tracked_peers(storage, Some(urn))?.collect::<Remotes<PeerId>>();
+
         for (peer, tracked) in remotes.iter_mut() {
             if let Some(refs) = Self::load(storage, urn, *peer)? {
                 *tracked = Box::new(refs.remotes.cutoff(TRACKING_GRAPH_DEPTH));

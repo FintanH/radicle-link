@@ -19,17 +19,21 @@ pub enum Error {
     Include(#[from] include::Error),
 
     #[error(transparent)]
-    Tracking(#[from] tracking::Error),
+    Track(#[from] link_tracking::git::tracking::error::Track),
+
+    #[error(transparent)]
+    Untrack(#[from] link_tracking::git::tracking::error::Untrack),
 }
 
+// TODO(finto): allow specification of Config
 pub fn track(storage: &Storage, paths: &Paths, urn: &Urn, peer: PeerId) -> Result<(), Error> {
-    let _tracked = tracking::track(storage, urn, peer)?;
+    let _tracked = tracking::track(storage, urn, Some(peer), None)?;
     include::update(storage, paths, urn)?;
     Ok(())
 }
 
 pub fn untrack(storage: &Storage, paths: &Paths, urn: &Urn, peer: PeerId) -> Result<(), Error> {
-    let _untracked = tracking::untrack(storage, urn, peer)?;
+    let _untracked = tracking::untrack(storage, urn, Some(peer))?;
     include::update(storage, paths, urn)?;
     Ok(())
 }

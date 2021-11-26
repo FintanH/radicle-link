@@ -100,7 +100,7 @@ fn collab_object_crud() {
                         .expect("local ID should have been created by TestProject::create")
                         .unwrap();
                     id.link(storage, &urn).unwrap();
-                    tracking::track(storage, &urn, peer2_id).unwrap();
+                    tracking::track(storage, &urn, Some(peer2_id), None).unwrap();
                     id
                 })
                 .await
