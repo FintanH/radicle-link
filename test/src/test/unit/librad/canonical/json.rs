@@ -23,6 +23,7 @@ struct Bar(bool, bool);
 struct Baz;
 
 #[derive(ToCjson)]
+#[cjson(tag = "type", content = "payload")]
 enum E {
     W { a: u32, b: i32 },
     X(u32, i32),
@@ -110,19 +111,12 @@ fn foo_canon() {
     };
     assert_eq!(
         val.into_cjson(),
-        vec![(
-            "Foo".into(),
-            vec![
-                ("xFoo".into(), 42u64.into_cjson()),
-                ("yFoo".into(), "hello".into_cjson())
-            ]
-            .into_iter()
-            .collect::<Map>()
-            .into_cjson()
-        )]
+        vec![
+            ("xFoo".into(), 42u64.into_cjson()),
+            ("yFoo".into(), "hello".into_cjson())
+        ]
         .into_iter()
-        .collect::<Map>()
-        .into_cjson()
+        .collect::<Value>()
     );
 }
 
@@ -131,16 +125,10 @@ fn bar_canon() {
     let val = Bar(true, false);
     assert_eq!(
         val.into_cjson(),
-        vec![(
-            "Bar".into(),
-            vec![true, false]
-                .into_iter()
-                .collect::<Array>()
-                .into_cjson()
-        )]
-        .into_iter()
-        .collect::<Map>()
-        .into_cjson()
+        vec![true, false]
+            .into_iter()
+            .collect::<Array>()
+            .into_cjson()
     );
 }
 
@@ -154,50 +142,58 @@ fn e_canon() {
     let val = E::W { a: 42, b: -3 };
     assert_eq!(
         val.into_cjson(),
-        vec![(
-            "W".into(),
-            vec![
-                ("a".into(), 42u64.into_cjson()),
-                ("b".into(), (-3).into_cjson()),
-            ]
-            .into_iter()
-            .collect::<Map>()
-            .into_cjson()
-        )]
+        vec![
+            ("type".into(), "W".into_cjson()),
+            (
+                "payload".into(),
+                vec![
+                    ("a".into(), 42u64.into_cjson()),
+                    ("b".into(), (-3).into_cjson()),
+                ]
+                .into_iter()
+                .collect::<Map>()
+                .into_cjson()
+            )
+        ]
         .into_iter()
-        .collect::<Map>()
-        .into_cjson()
+        .collect::<Value>()
     );
 
     let val = E::X(42, 3);
     assert_eq!(
         val.into_cjson(),
-        vec![(
-            "X".into(),
-            vec![42u64.into_cjson(), 3.into_cjson()]
-                .into_iter()
-                .collect::<Array>()
-                .into_cjson(),
-        )]
+        vec![
+            ("type".into(), "X".into_cjson()),
+            (
+                "payload".into(),
+                vec![42u64.into_cjson(), 3.into_cjson()].into_cjson()
+            ),
+        ]
         .into_iter()
-        .collect::<Map>()
-        .into_cjson()
+        .collect::<Value>()
     );
 
     let val = E::Y(42);
     assert_eq!(
         val.into_cjson(),
-        vec![(
-            "Y".into(),
-            vec![42.into_cjson()]
-                .into_iter()
-                .collect::<Array>()
-                .into_cjson()
-        )]
+        vec![
+            ("type".into(), "Y".into_cjson()),
+            (
+                "payload".into(),
+                vec![42.into_cjson()]
+                    .into_iter()
+                    .collect::<Array>()
+                    .into_cjson()
+            )
+        ]
         .into_iter()
-        .collect::<Map>()
-        .into_cjson()
+        .collect::<Value>()
     );
 
-    assert_eq!(E::Z.into_cjson(), Value::String("Z".into()))
+    assert_eq!(
+        E::Z.into_cjson(),
+        vec![("type".into(), "Z".into_cjson())]
+            .into_iter()
+            .collect::<Value>()
+    )
 }
