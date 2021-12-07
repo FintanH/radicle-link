@@ -30,10 +30,10 @@ pub enum Error {
     Storage(#[from] storage::Error),
     #[error(transparent)]
     Stored(#[from] stored::Error),
-    #[error(transparent)]
-    Tracking(#[from] tracking::Error),
     #[error("the identity `{0}` found is not recognised/supported")]
     UknownIdentity(Urn),
+    #[error(transparent)]
+    Tracked(#[from] link_tracking::git::tracking::error::Tracked),
 }
 
 /// The `rad/self` under a `Project`/`Person`.
@@ -133,7 +133,7 @@ where
 
     let mut peers = vec![];
 
-    for peer_id in tracking::tracked(storage, urn)? {
+    for peer_id in tracking::tracked_peers(storage, Some(urn))? {
         let status = match Persona::load(storage, &identity, peer_id)? {
             Some(persona) => Status::replicated(persona),
             None => Status::NotReplicated,

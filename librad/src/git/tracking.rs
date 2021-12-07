@@ -3,20 +3,13 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{convert::TryFrom, ops::Range, str::FromStr};
-
-use git_ext::{is_exists_err, is_not_found_err};
-use std_ext::result::ResultExt as _;
-use thiserror::Error;
-
-use super::{
-    p2p::url::GitUrlRef,
-    storage::{self, glob, ReadOnlyStorage, Storage},
-};
-use crate::PeerId;
-
 pub use crate::identities::git::Urn;
 
+pub mod odb;
+pub mod refdb;
+
+pub use link_tracking::git::tracking::{get, is_tracked, track, tracked, tracked_peers, untrack};
+/*
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -178,3 +171,4 @@ impl Iterator for Tracked {
 fn tracking_remote_name(urn: &Urn, peer: &PeerId) -> String {
     format!("{}/{}", urn.encode_id(), peer)
 }
+*/
