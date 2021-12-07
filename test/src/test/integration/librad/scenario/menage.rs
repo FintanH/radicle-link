@@ -244,7 +244,7 @@ fn threes_a_crowd() {
                 let peer2_id = peer2.peer_id();
                 let urn = proj.project.urn();
                 move |storage| -> anyhow::Result<()> {
-                    tracking::track(storage, &urn, peer2_id)?;
+                    tracking::track(storage, &urn, Some(peer2_id), tracking::Config::default())?;
                     Refs::update(storage, &urn)?;
                     Ok(())
                 }
