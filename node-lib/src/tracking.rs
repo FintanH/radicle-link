@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use futures::{pin_mut, StreamExt as _};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, trace};
 
 use librad::{
     git::{tracking, Urn},
@@ -67,11 +67,27 @@ where
 
                 let go = async {
                     let updated = peer
-                        .using_storage({
-                            let urn = urn.clone();
-                            move |storage| tracking::track(storage, &urn, peer_id)
-                        })
-                        .await??;
+                    .using_storage({
+                        let urn = urn.clone();
+                        move |storage| -> anyhow::Result<bool> {
+                            match tracking::track(
+                                storage,
+                                &urn,
+                                Some(peer_id),
+                                tracking::Config::default(),
+                            )? {
+				Some(reference) => {
+				    trace!(name=%reference.name, target=%reference.target, "created tracking entry");
+				    Ok(true)
+				},
+				None => {
+				    trace!("tracking entry already existed");
+				    Ok(false)
+				}
+			    }
+                        }
+                    })
+                    .await??;
 
                     // Skip explicit replication if the peer is already tracked.
                     if updated {
