@@ -25,7 +25,7 @@ pub mod error {
 
     #[derive(Debug, Error)]
     pub enum Policy {
-        #[error(r#"expected `"allow"` or `"deny"`, but found {0}"#)]
+        #[error("expected 'allow' or 'deny', but found {0}")]
         Unexpected(Cstring),
         #[error("expected type {expected}, but found {found}")]
         MismatchedTy { expected: String, found: String },

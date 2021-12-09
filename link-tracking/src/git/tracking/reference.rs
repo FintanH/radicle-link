@@ -21,6 +21,15 @@ pub enum Remote {
     Peer(PeerId),
 }
 
+impl From<Remote> for Option<PeerId> {
+    fn from(remote: Remote) -> Self {
+        match remote {
+            Remote::Default => None,
+            Remote::Peer(peer) => Some(peer),
+        }
+    }
+}
+
 impl From<Option<PeerId>> for Remote {
     fn from(peer: Option<PeerId>) -> Self {
         peer.map_or(Self::Default, Self::Peer)

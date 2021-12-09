@@ -3,11 +3,10 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::convert::{TryFrom, TryInto as _};
+use std::{collections::BTreeMap, convert::TryFrom};
 
 use tracing::warn;
 
-use link_canonical::Canonical as _;
 use link_crypto::PeerId;
 use link_identities::urn::Urn;
 use radicle_git_ext::{Oid, RefLike};
@@ -24,7 +23,7 @@ pub fn track<Db>(
     db: &Db,
     urn: &Urn<Oid>,
     peer: Option<PeerId>,
-    config: Option<config::Config>,
+    config: config::Config,
 ) -> Result<bool, error::Track>
 where
     Db: odb::Read<Oid = Oid>
@@ -41,8 +40,7 @@ where
         source: err.into(),
     })? {
         None => {
-            let bytes = config.unwrap_or_default().canonical_form().unwrap();
-            let target = db.write_object(bytes).map_err(|err| Track::WriteObj {
+            let target = db.write_object(&config).map_err(|err| Track::WriteObj {
                 reference: mk_ref(),
                 source: err.into(),
             })?;
@@ -57,6 +55,7 @@ where
     }
 }
 
+// TODO(finto): if peer is None we untrack ALL of the URN
 pub fn untrack<Db>(db: &Db, urn: &Urn<Oid>, peer: Option<PeerId>) -> Result<bool, error::Untrack>
 where
     Db: odb::Read<Oid = Oid> + refdb::Read<Oid = Oid> + refdb::Write<Oid = Oid>,
@@ -98,8 +97,7 @@ where
     })? {
         None => Ok(false),
         Some(reference) => {
-            let bytes = config.canonical_form().unwrap();
-            let oid = db.write_object(bytes).map_err(|err| Update::WriteObj {
+            let oid = db.write_object(&config).map_err(|err| Update::WriteObj {
                 reference: mk_ref(),
                 source: err.into(),
             })?;
@@ -114,10 +112,84 @@ where
     }
 }
 
-pub fn tracked<Db>(
-    db: &Db,
+pub fn tracked<'a, Db>(
+    db: &'a Db,
     filter_by: Option<&'_ Urn<Oid>>,
-) -> Result<Vec<Tracked<Oid, config::Config>>, error::Tracked>
+) -> Result<
+    impl Iterator<Item = Result<Tracked<Oid, config::Config>, error::Tracked>> + 'a,
+    error::Tracked,
+>
+where
+    Db: odb::Read<Oid = Oid> + refdb::Read<Oid = Oid>,
+{
+    use error::Tracked;
+
+    let prefix = reflike!("refs/rad/remotes");
+    let pattern = match filter_by {
+        Some(urn) => {
+            let namespace = RefLike::try_from(urn.encode_id())
+                .expect("namespace should be valid ref component");
+            prefix
+                .join(namespace)
+                .with_pattern_suffix(refspec_pattern!("*"))
+        },
+        None => prefix.with_pattern_suffix(refspec_pattern!("*")),
+    };
+    let seen: BTreeMap<Oid, config::Config> = BTreeMap::new();
+    let resolve = {
+        let pattern = pattern.clone();
+        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| {
+            let reference = reference.map_err(|err| Tracked::Iter {
+                pattern: pattern.clone(),
+                source: err.into(),
+            })?;
+
+            // We may have seen this config already
+            if let Some(config) = seen.get(&reference.target) {
+                return Ok(Some(from_reference(
+                    &reference.name.as_ref(),
+                    config.clone(),
+                )));
+            }
+
+            // Otherwise we attempt to fetch it from the backend
+            match db
+                .find_blob(&reference.target)
+                .map_err(|err| Tracked::FindObj {
+                    reference: reference.name.clone(),
+                    target: reference.target,
+                    source: err.into(),
+                })? {
+                None => {
+                    warn!(name=?reference.name, oid=?reference.target, "missing blob");
+                    Ok(None)
+                },
+                Some(obj) => {
+                    let config = config::Config::try_from(obj).map_err(|err| Tracked::Config {
+                        reference: reference.name.clone(),
+                        target: reference.target,
+                        source: err.into(),
+                    })?;
+                    Ok(Some(from_reference(&reference.name.as_ref(), config)))
+                },
+            }
+        }
+    };
+
+    Ok(db
+        .references(&pattern)
+        .map_err(|err| Tracked::References {
+            pattern: pattern.clone(),
+            source: err.into(),
+        })?
+        .into_iter()
+        .filter_map(move |r| resolve(r).transpose()))
+}
+
+pub fn tracked_peers<'a, Db>(
+    db: &'a Db,
+    filter_by: Option<&'_ Urn<Oid>>,
+) -> Result<impl Iterator<Item = Result<PeerId, error::Tracked>> + 'a, error::Tracked>
 where
     Db: odb::Read<Oid = Oid> + refdb::Read<Oid = Oid>,
 {
@@ -135,50 +207,26 @@ where
         None => prefix.with_pattern_suffix(refspec_pattern!("*")),
     };
 
-    let mut references = vec![];
+    let resolve = {
+        let pattern = pattern.clone();
+        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| -> Result<Option<PeerId>, Tracked> {
+            let reference = reference.map_err(|err| Tracked::Iter {
+                pattern: pattern.clone(),
+                source: err.into(),
+            })?;
 
-    for reference in db.references(&pattern).map_err(|err| Tracked::References {
-        pattern: pattern.clone(),
-        source: err.into(),
-    })? {
-        let reference = reference.map_err(|err| Tracked::Iter {
+            Ok(reference.name.remote.into())
+        }
+    };
+
+    Ok(db
+        .references(&pattern)
+        .map_err(|err| Tracked::References {
             pattern: pattern.clone(),
             source: err.into(),
-        })?;
-        match db
-            .find_blob(&reference.target)
-            .map_err(|err| Tracked::FindObj {
-                reference: reference.name.clone(),
-                target: reference.target,
-                source: err.into(),
-            })? {
-            None => {
-                warn!(name=?reference.name, oid=?reference.target, "missing blob")
-            },
-            Some(obj) => {
-                let config: config::Config = obj.try_into().map_err(|err| Tracked::Config {
-                    reference: reference.name.clone(),
-                    target: reference.target,
-                    source: err.into(),
-                })?;
-                references.push(from_reference(&reference.name.as_ref(), config));
-            },
-        }
-    }
-
-    Ok(references)
-}
-
-pub fn tracked_peers<Db>(
-    db: &Db,
-    filter_by: Option<&'_ Urn<Oid>>,
-) -> Result<impl Iterator<Item = PeerId>, error::Tracked>
-where
-    Db: odb::Read<Oid = Oid> + refdb::Read<Oid = Oid>,
-{
-    Ok(tracked(db, filter_by)?
+        })?
         .into_iter()
-        .filter_map(|tracked| tracked.peer_id()))
+        .filter_map(move |r| resolve(r).transpose()))
 }
 
 pub fn get<Db>(
@@ -206,7 +254,7 @@ where
             })? {
             None => Ok(None),
             Some(obj) => {
-                let config: config::Config = obj.try_into().map_err(|err| Get::Config {
+                let config = config::Config::try_from(obj).map_err(|err| Get::Config {
                     reference: reference.name,
                     target: reference.target,
                     source: err.into(),
@@ -217,15 +265,20 @@ where
     }
 }
 
-pub fn is_tracked<Db>(
-    backend: &Db,
-    urn: &Urn<Oid>,
-    peer: Option<PeerId>,
-) -> Result<bool, error::Get>
+pub fn is_tracked<Db>(db: &Db, urn: &Urn<Oid>, peer: Option<PeerId>) -> Result<bool, error::Get>
 where
-    Db: odb::Read<Oid = Oid> + refdb::Read<Oid = Oid>,
+    Db: refdb::Read<Oid = Oid>,
 {
-    get(backend, urn, peer).map(|tracked| tracked.is_some())
+    use error::Get;
+
+    let name = ReferenceRef::new(urn, peer);
+    match db.find_reference(&name).map_err(|err| Get::FindRef {
+        reference: name.into_owned(),
+        source: err.into(),
+    })? {
+        None => Ok(false),
+        Some(_) => Ok(true),
+    }
 }
 
 fn from_reference(
@@ -245,7 +298,10 @@ fn from_reference(
     }
 }
 
-fn blob<Db>(db: &Db, reference: &ReferenceRef<'_, Oid>) -> Result<Option<Db::Blob>, error::Blob>
+fn blob<'a, Db>(
+    db: &'a Db,
+    reference: &ReferenceRef<'_, Oid>,
+) -> Result<Option<config::Config>, error::Blob>
 where
     Db: refdb::Read<Oid = Oid> + odb::Read<Oid = Oid>,
 {

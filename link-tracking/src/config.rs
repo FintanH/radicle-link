@@ -58,22 +58,49 @@ impl<Ty: Clone + Ord + Into<Cstring> + Ord, Id: Clone + Ord + ToCjson> Canonical
 impl<Ty, Id> Default for Config<Ty, Id> {
     fn default() -> Self {
         Self {
-            data: Data::default(),
-            cobs: Cobs::default(),
+            data: Data(true),
+            cobs: Cobs::Wildcard,
         }
     }
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("expected type {expected}, but found {found}")]
-    MismatchedTy { expected: String, found: String },
-    #[error("missing `\"{0}\"` key")]
-    Missing(&'static str),
-    #[error(transparent)]
-    Data(#[from] data::cjson::Error),
-    #[error(transparent)]
-    Cobs(#[from] cobs::cjson::error::Cobs),
+pub mod error {
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub enum Json {
+        #[error("expected type {expected}, but found {found}")]
+        MismatchedTy { expected: String, found: String },
+        #[error("missing `\"{0}\"` key")]
+        Missing(&'static str),
+        #[error(transparent)]
+        Data(#[from] data::cjson::Error),
+        #[error(transparent)]
+        Cobs(#[from] cobs::cjson::error::Cobs),
+    }
+
+    #[derive(Debug, Error)]
+    pub enum Parse {
+        #[error("failed to parse bytes to Config: {0}")]
+        Bytes(String),
+        #[error(transparent)]
+        Json(#[from] Json),
+    }
+}
+
+impl<Ty, Id> TryFrom<&[u8]> for Config<Ty, Id>
+where
+    Ty: TryFrom<Cstring> + Ord,
+    Id: TryFrom<Value> + Ord,
+    <Ty as TryFrom<Cstring>>::Error: std::error::Error + Send + Sync + 'static,
+    <Id as TryFrom<Value>>::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Error = error::Parse;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let val = Value::try_from(bytes).map_err(error::Parse::Bytes)?;
+        Ok(Config::try_from(val)?)
+    }
 }
 
 impl<Ty, Id> TryFrom<Value> for Config<Ty, Id>
@@ -83,19 +110,21 @@ where
     <Ty as TryFrom<Cstring>>::Error: std::error::Error + Send + Sync + 'static,
     <Id as TryFrom<Value>>::Error: std::error::Error + Send + Sync + 'static,
 {
-    type Error = Error;
+    type Error = error::Json;
 
     fn try_from(val: Value) -> Result<Self, Self::Error> {
+        use error::Json;
+
         match val {
             Value::Object(map) => {
-                let cobs = map.get(&COBS.into()).ok_or(Error::Missing(COBS))?;
-                let data = map.get(&DATA.into()).ok_or(Error::Missing(DATA))?;
+                let cobs = map.get(&COBS.into()).ok_or(Json::Missing(COBS))?;
+                let data = map.get(&DATA.into()).ok_or(Json::Missing(DATA))?;
 
                 let data = Data::try_from(data)?;
                 let cobs = Cobs::try_from(cobs)?;
                 Ok(Self { data, cobs })
             },
-            val => Err(Error::MismatchedTy {
+            val => Err(Json::MismatchedTy {
                 expected: "object, keys: [\"cobs\", \"data\"]".to_string(),
                 found: val.ty_name().to_string(),
             }),

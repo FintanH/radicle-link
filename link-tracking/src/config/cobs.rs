@@ -95,12 +95,6 @@ impl<Ty: Ord, Id: Ord> Cobs<Ty, Id> {
     }
 }
 
-impl<T, O> Default for Cobs<T, O> {
-    fn default() -> Self {
-        Self::Wildcard
-    }
-}
-
 impl<Ty: Ord, Id: Ord> FromIterator<(Ty, BTreeSet<Filter<Id>>)> for Cobs<Ty, Id> {
     fn from_iter<T: IntoIterator<Item = (Ty, BTreeSet<Filter<Id>>)>>(iter: T) -> Self {
         Self::Filters(iter.into_iter().collect())

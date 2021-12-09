@@ -7,12 +7,6 @@
 #[derive(ToCjson, Clone, Debug)]
 pub struct Data(pub bool);
 
-impl Default for Data {
-    fn default() -> Self {
-        Self(true)
-    }
-}
-
 pub mod cjson {
     use std::convert::TryFrom;
 

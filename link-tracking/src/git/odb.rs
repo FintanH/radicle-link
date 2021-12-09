@@ -3,18 +3,15 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::convert::TryInto;
-
-use crate::git::config;
+use crate::git::config::Config;
 
 pub trait Read {
     type FindError: std::error::Error + Send + Sync + 'static;
     type ConfigError: std::error::Error + Send + Sync + 'static;
 
     type Oid;
-    type Blob: TryInto<config::Config, Error = Self::ConfigError>;
 
-    fn find_blob(&self, oid: &Self::Oid) -> Result<Option<Self::Blob>, Self::FindError>;
+    fn find_blob(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError>;
 }
 
 pub trait Write {
@@ -22,5 +19,5 @@ pub trait Write {
 
     type Oid;
 
-    fn write_object(&self, bytes: Vec<u8>) -> Result<Self::Oid, Self::WriteError>;
+    fn write_object(&self, config: &Config) -> Result<Self::Oid, Self::WriteError>;
 }
