@@ -3,7 +3,7 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{convert::TryFrom, fmt, str::FromStr};
+use std::{borrow::Cow, convert::TryFrom, fmt, str::FromStr};
 
 use multihash::Multihash;
 
@@ -72,66 +72,60 @@ impl From<&Remote> for RefLike {
 }
 
 #[derive(Clone, Debug)]
-pub struct Reference<R> {
+pub struct ReferenceName<'a, R: ToOwned + Clone> {
     pub remote: Remote,
-    pub urn: Urn<R>,
+    pub urn: Cow<'a, Urn<R>>,
 }
 
-impl<R> Reference<R> {
-    pub fn new<P>(urn: Urn<R>, peer: P) -> Self
+impl<'a, R: ToOwned + Clone> ReferenceName<'a, R> {
+    pub fn owned<P>(urn: Urn<R>, peer: P) -> Self
     where
         P: Into<Option<PeerId>>,
     {
         Self {
             remote: peer.into().map(Remote::Peer).unwrap_or_default(),
-            urn,
+            urn: Cow::Owned(urn),
         }
     }
 
-    pub fn as_ref(&self) -> ReferenceRef<'_, R> {
-        ReferenceRef {
-            remote: self.remote,
-            urn: &self.urn,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ReferenceRef<'a, R> {
-    pub remote: Remote,
-    pub urn: &'a Urn<R>,
-}
-
-impl<'a, R> ReferenceRef<'a, R> {
-    pub fn new<P>(urn: &'a Urn<R>, peer: P) -> Self
+    pub fn borrowed<P>(urn: &'a Urn<R>, peer: P) -> Self
     where
         P: Into<Option<PeerId>>,
     {
         Self {
             remote: peer.into().map(Remote::Peer).unwrap_or_default(),
-            urn,
+            urn: Cow::Borrowed(urn),
         }
     }
 
-    pub fn into_owned(&self) -> Reference<R>
-    where
-        R: Clone,
-    {
-        Reference {
+    pub fn into_owned(self) -> ReferenceName<'static, R> {
+        let urn = self.urn.into_owned();
+        ReferenceName {
             remote: self.remote,
-            urn: self.urn.clone(),
+            urn: Cow::Owned(urn),
         }
     }
+
+    /*
+        fn namespace(&self) -> String
+        where
+            R: HasProtocol,
+            &'a R: Into<Multihash>,
+        {
+            self.clone().into_owned().urn.encode_id()
+        }
+    */
 }
 
-impl<'a, R> From<&ReferenceRef<'a, R>> for RefLike
+impl<'a, R> From<&'a ReferenceName<'a, R>> for RefLike
 where
-    R: Clone + HasProtocol,
+    R: HasProtocol + ToOwned + Clone,
     &'a R: Into<Multihash>,
 {
-    fn from(r: &ReferenceRef<'a, R>) -> Self {
+    fn from(r: &'a ReferenceName<'a, R>) -> Self {
+        let namespace: String = r.urn.encode_id();
         let namespace =
-            RefLike::try_from(r.urn.encode_id()).expect("namespace should be valid ref component");
+            RefLike::try_from(namespace).expect("namespace should be valid ref component");
         base().join(namespace).join(&r.remote)
     }
 }
@@ -154,9 +148,9 @@ pub mod error {
     }
 }
 
-impl<R> FromStr for Reference<R>
+impl<'a, R> FromStr for ReferenceName<'a, R>
 where
-    R: TryFrom<Multihash>,
+    R: TryFrom<Multihash> + ToOwned + Clone,
     R::Error: std::error::Error + Send + Sync + 'static,
 {
     type Err = error::Parse;
@@ -180,36 +174,20 @@ where
             return Err(error::Parse::MissingComponent("(default | <peer>)"));
         };
 
-        Ok(Self { remote, urn })
+        Ok(Self {
+            remote,
+            urn: Cow::Owned(urn),
+        })
     }
 }
 
-impl<'a, R> fmt::Display for ReferenceRef<'a, R>
+impl<'a, R: 'a> fmt::Display for ReferenceName<'a, R>
 where
-    R: HasProtocol,
+    R: HasProtocol + ToOwned + Clone,
     &'a R: Into<Multihash>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "refs/rad/remotes/{}/{}",
-            self.urn.encode_id(),
-            self.remote
-        )
-    }
-}
-
-impl<R> fmt::Display for Reference<R>
-where
-    R: HasProtocol,
-    for<'a> &'a R: Into<Multihash>,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "refs/rad/remotes/{}/{}",
-            self.urn.encode_id(),
-            self.remote
-        )
+        let ReferenceName { urn, remote } = self.clone().into_owned();
+        write!(f, "refs/rad/remotes/{}/{}", urn.encode_id(), remote)
     }
 }

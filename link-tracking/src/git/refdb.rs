@@ -5,11 +5,11 @@
 
 use radicle_git_ext::RefspecPattern;
 
-use crate::git::tracking::reference::{Reference, ReferenceRef};
+use crate::git::tracking::reference::ReferenceName;
 
 #[derive(Debug)]
-pub struct Ref<Oid> {
-    pub name: Reference<Oid>,
+pub struct Ref<'a, Oid: ToOwned + Clone> {
+    pub name: ReferenceName<'a, Oid>,
     pub target: Oid,
 }
 
@@ -18,11 +18,11 @@ pub trait Read {
     type ReferencesError: std::error::Error + Send + Sync + 'static;
     type IterError: std::error::Error + Send + Sync + 'static;
 
-    type Oid;
+    type Oid: Clone;
 
     fn find_reference(
         &self,
-        reference: &ReferenceRef<'_, Self::Oid>,
+        reference: &ReferenceName<'_, Self::Oid>,
     ) -> Result<Option<Ref<Self::Oid>>, Self::FindError>;
 
     #[allow(clippy::type_complexity)]
@@ -37,22 +37,22 @@ pub trait Write {
     type WriteError: std::error::Error + Send + Sync + 'static;
     type DeleteError: std::error::Error + Send + Sync + 'static;
 
-    type Oid;
+    type Oid: Clone;
 
     fn create(
         &self,
-        name: &ReferenceRef<'_, Self::Oid>,
+        name: &ReferenceName<'_, Self::Oid>,
         target: Self::Oid,
     ) -> Result<Ref<Self::Oid>, Self::CreateError>;
 
     fn write_target(
         &self,
-        reference: &ReferenceRef<'_, Self::Oid>,
+        reference: &ReferenceName<'_, Self::Oid>,
         target: Self::Oid,
     ) -> Result<(), Self::WriteError>;
 
     fn delete_reference(
         &self,
-        reference: &ReferenceRef<'_, Self::Oid>,
+        reference: &ReferenceName<'_, Self::Oid>,
     ) -> Result<bool, Self::DeleteError>;
 }

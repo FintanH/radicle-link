@@ -7,64 +7,64 @@ use radicle_git_ext::{Oid, RefspecPattern};
 
 use thiserror::Error;
 
-use super::Reference;
+use super::ReferenceName;
 
 #[derive(Debug, Error)]
 pub enum Track {
     #[error("failed to create reference `{reference}` during track")]
     Create {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to see if `{reference}` exists during track")]
     FindObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to write new config to `{reference}` during track")]
     WriteObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
 }
 
 #[derive(Debug, Error)]
-pub enum Untrack {
+pub enum Untrack<'a> {
     #[error("failed to find config for `{reference}` during untrack")]
     FindObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'a, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to remove config for `{reference}` during untrack")]
     Delete {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'a, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
 }
 
 #[derive(Debug, Error)]
-pub enum Update {
+pub enum Update<'a> {
     #[error("failed to find `{reference}` during update")]
     FindRef {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'a, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to write new config object for `{reference}` during update")]
     WriteObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'a, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to point `{reference}` to new object `{object}` during update")]
     WriteRef {
         object: Oid,
-        reference: Reference<Oid>,
+        reference: ReferenceName<'a, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
@@ -74,7 +74,7 @@ pub enum Update {
 pub enum Tracked {
     #[error("failed to get object for `{reference}`@`{target}` while getting tracked entries")]
     FindObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         target: Oid,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -97,14 +97,14 @@ pub enum Tracked {
 pub enum Get {
     #[error("failed to get object for `{reference}`@`{target}` while getting entry")]
     FindObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         target: Oid,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to find `{reference}` during get")]
     FindRef {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
@@ -114,14 +114,14 @@ pub enum Get {
 pub enum Blob {
     #[error("failed to get object for `{reference}@{target}` while loading blob")]
     FindObj {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         target: Oid,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
     #[error("failed to find `{reference}` while loading blob")]
     FindRef {
-        reference: Reference<Oid>,
+        reference: ReferenceName<'static, Oid>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
