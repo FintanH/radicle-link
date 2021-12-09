@@ -29,9 +29,6 @@ features = [ "json-value" ]
 [dependencies.librad]
 path = "../librad"
 
-[dependencies.link-tracking]
-path = "../link-tracking"
-
 [dependencies.radicle-git-ext]
 path = "../git-ext"
 

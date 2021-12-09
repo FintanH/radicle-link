@@ -19,10 +19,10 @@ pub enum Error {
     Include(#[from] include::Error),
 
     #[error(transparent)]
-    Track(#[from] link_tracking::git::tracking::error::Track),
+    Track(#[from] tracking::error::Track),
 
     #[error(transparent)]
-    Untrack(#[from] link_tracking::git::tracking::error::Untrack),
+    Untrack(#[from] tracking::error::Untrack),
 }
 
 // TODO(finto): allow specification of Config

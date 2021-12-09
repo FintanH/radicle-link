@@ -33,7 +33,7 @@ pub enum Error {
     #[error("the identity `{0}` found is not recognised/supported")]
     UknownIdentity(Urn),
     #[error(transparent)]
-    Tracked(#[from] link_tracking::git::tracking::error::Tracked),
+    Tracked(#[from] tracking::error::Tracked),
 }
 
 /// The `rad/self` under a `Project`/`Person`.

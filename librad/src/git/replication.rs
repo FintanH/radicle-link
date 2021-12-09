@@ -75,13 +75,35 @@ pub enum Error {
     Store(#[from] storage::Error),
 
     #[error(transparent)]
-    Track(#[from] link_tracking::git::tracking::error::Track),
+    Tracking(#[from] Tracking),
+}
 
+#[derive(Debug, Error)]
+pub enum Tracking {
     #[error(transparent)]
-    Tracked(#[from] link_tracking::git::tracking::error::Tracked),
+    Track(#[from] tracking::error::Track),
+    #[error(transparent)]
+    Untrack(#[from] tracking::error::Untrack),
+    #[error(transparent)]
+    Tracked(#[from] tracking::error::Tracked),
+}
 
-    #[error(transparent)]
-    Untrack(#[from] link_tracking::git::tracking::error::Untrack),
+impl From<tracking::error::Track> for Error {
+    fn from(err: tracking::error::Track) -> Self {
+        Self::Tracking(err.into())
+    }
+}
+
+impl From<tracking::error::Untrack> for Error {
+    fn from(err: tracking::error::Untrack) -> Self {
+        Self::Tracking(err.into())
+    }
+}
+
+impl From<tracking::error::Tracked> for Error {
+    fn from(err: tracking::error::Tracked) -> Self {
+        Self::Tracking(err.into())
+    }
 }
 
 impl From<identities::error::Error> for Error {

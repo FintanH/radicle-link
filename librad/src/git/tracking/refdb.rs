@@ -161,7 +161,6 @@ impl Write for Storage {
 
         let r = {
             let name = ext::RefLike::from(name);
-            println!("wut {}", name);
             let message = &format!("created reference with target `{}`", target);
             raw.reference(name.as_str(), target.into(), false, message)?
         };
