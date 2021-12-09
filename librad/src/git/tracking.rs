@@ -8,10 +8,12 @@ pub use crate::identities::git::Urn;
 mod odb;
 mod refdb;
 
-pub use link_tracking as tracking;
-pub use link_tracking::git::{
-    config::Config,
-    tracking::{error, get, is_tracked, track, tracked, tracked_peers, untrack},
+pub use link_tracking::{
+    git::{
+        config::Config,
+        tracking::{error, get, is_tracked, track, tracked, tracked_peers, untrack},
+    },
+    *,
 };
 
 pub type Tracked = tracking::Tracked<git_ext::Oid, Config>;

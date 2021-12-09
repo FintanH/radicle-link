@@ -3,34 +3,28 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::convert::TryFrom;
+use std::convert::TryFrom as _;
 
-use link_canonical::json;
-use link_tracking::git::{
-    config,
-    odb::{Read, Write},
-};
+use link_canonical::Canonical as _;
 
 use crate::{
-    git::storage::{ReadOnly, ReadOnlyStorage as _, Storage},
+    git::{
+        storage::{ReadOnly, ReadOnlyStorage as _, Storage},
+        tracking::{
+            git::odb::{Read, Write},
+            Config,
+        },
+    },
     git_ext as ext,
 };
-
-pub struct Blob(Vec<u8>);
-
-impl TryFrom<Blob> for config::Config {
-    type Error = error::Config;
-
-    fn try_from(Blob(bytes): Blob) -> Result<Self, Self::Error> {
-        let value = json::Value::try_from(bytes.as_slice()).map_err(error::Config::Parse)?;
-        Ok(link_tracking::config::Config::try_from(value)?)
-    }
-}
 
 pub mod error {
     use thiserror::Error;
 
-    use crate::{git::storage::read, git_ext as ext};
+    use crate::{
+        git::{storage::read, tracking::config},
+        git_ext as ext,
+    };
 
     #[derive(Debug, Error)]
     pub enum Find {
@@ -38,6 +32,12 @@ pub mod error {
         NotBlob(ext::Oid),
         #[error(transparent)]
         Read(#[from] read::Error),
+        #[error("failed to parse config at `{oid}`")]
+        Config {
+            oid: ext::Oid,
+            #[source]
+            source: config::error::Parse,
+        },
     }
 
     #[derive(Debug, Error)]
@@ -51,7 +51,7 @@ pub mod error {
         #[error("failed to parse Canonical JSON: {0}")]
         Parse(String),
         #[error(transparent)]
-        Json(#[from] link_tracking::config::Error),
+        Json(#[from] link_tracking::config::error::Json),
     }
 }
 
@@ -60,20 +60,20 @@ impl Read for ReadOnly {
     type ConfigError = error::Config;
 
     type Oid = ext::Oid;
-    type Blob = Blob;
 
-    fn find_blob(&self, oid: &Self::Oid) -> Result<Option<Self::Blob>, Self::FindError> {
-        let content = {
-            match self.find_object(oid)? {
-                None => None,
-                Some(obj) => {
-                    let blob = obj.as_blob().ok_or_else(|| error::Find::NotBlob(*oid))?;
-                    Some(blob.content().to_vec())
-                },
-            }
-        };
-
-        Ok(content.map(Blob))
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError> {
+        match self.find_object(oid)? {
+            None => Ok(None),
+            Some(obj) => {
+                let blob = obj.into_blob().map_err(|_| error::Find::NotBlob(*oid))?;
+                Config::try_from(blob.content())
+                    .map(Some)
+                    .map_err(|err| error::Find::Config {
+                        oid: *oid,
+                        source: err,
+                    })
+            },
+        }
     }
 }
 
@@ -82,10 +82,9 @@ impl Read for Storage {
     type ConfigError = error::Config;
 
     type Oid = ext::Oid;
-    type Blob = Blob;
 
-    fn find_blob(&self, oid: &Self::Oid) -> Result<Option<Self::Blob>, Self::FindError> {
-        self.read_only().find_blob(oid)
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError> {
+        self.read_only().find_config(oid)
     }
 }
 
@@ -94,7 +93,11 @@ impl Write for Storage {
 
     type Oid = ext::Oid;
 
-    fn write_object(&self, bytes: Vec<u8>) -> Result<Self::Oid, Self::WriteError> {
-        Ok(self.as_raw().blob(&bytes).map(ext::Oid::from)?)
+    fn write_config(&self, config: &Config) -> Result<Self::Oid, Self::WriteError> {
+        // unwrap is safe since Error is Infallible
+        Ok(self
+            .as_raw()
+            .blob(&config.canonical_form().unwrap())
+            .map(ext::Oid::from)?)
     }
 }

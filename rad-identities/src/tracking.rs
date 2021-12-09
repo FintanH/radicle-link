@@ -27,7 +27,7 @@ pub enum Error {
 
 // TODO(finto): allow specification of Config
 pub fn track(storage: &Storage, paths: &Paths, urn: &Urn, peer: PeerId) -> Result<(), Error> {
-    let _tracked = tracking::track(storage, urn, Some(peer), None)?;
+    let _tracked = tracking::track(storage, urn, Some(peer), tracking::Config::default())?;
     include::update(storage, paths, urn)?;
     Ok(())
 }

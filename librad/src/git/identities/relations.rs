@@ -134,6 +134,7 @@ where
     let mut peers = vec![];
 
     for peer_id in tracking::tracked_peers(storage, Some(urn))? {
+        let peer_id = peer_id?;
         let status = match Persona::load(storage, &identity, peer_id)? {
             Some(persona) => Status::replicated(persona),
             None => Status::NotReplicated,

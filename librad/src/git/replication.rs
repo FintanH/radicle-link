@@ -250,7 +250,8 @@ where
                     )?;
                     updated_tips.append(&mut project_tips);
                     let tracked =
-                        tracking::tracked_peers(storage, Some(&urn))?.collect::<BTreeSet<_>>();
+                        tracking::tracked_peers(storage, Some(&urn))?
+                            .collect::<Result<BTreeSet<_>, _>>()?;
                     allowed.extend(tracked);
 
                     (allowed, id_status)
@@ -311,8 +312,8 @@ where
                     )?;
                     updated_tips.append(&mut project_tips);
 
-                    let mut updated_tracked =
-                        tracking::tracked_peers(storage, Some(&urn))?.collect::<BTreeSet<_>>();
+                    let mut updated_tracked = tracking::tracked_peers(storage, Some(&urn))?
+                        .collect::<Result<BTreeSet<_>, _>>()?;
                     updated_tracked.append(&mut updated_delegations);
                     (
                         ReplicateResult {
@@ -332,7 +333,8 @@ where
                             identity: id_status,
                             mode: Mode::Fetch,
                         },
-                        tracking::tracked_peers(storage, Some(&urn))?.collect::<BTreeSet<_>>(),
+                        tracking::tracked_peers(storage, Some(&urn))?
+                            .collect::<Result<BTreeSet<_>, _>>()?,
                     )
                 },
 
@@ -413,21 +415,21 @@ where
         ))
     } else {
         let identity = identities::any::get(storage, &urn)?.ok_or(Error::MissingIdentity)?;
-        let existing = match identity {
-            SomeIdentity::Project(ref proj) => {
-                let mut remotes = project::all_delegates(proj);
-                let mut tracked =
-                    tracking::tracked_peers(storage, Some(&urn))?.collect::<BTreeSet<_>>();
-                remotes.append(&mut tracked);
+        let existing =
+            match identity {
+                SomeIdentity::Project(ref proj) => {
+                    let mut remotes = project::all_delegates(proj);
+                    let mut tracked = tracking::tracked_peers(storage, Some(&urn))?
+                        .collect::<Result<BTreeSet<_>, _>>()?;
+                    remotes.append(&mut tracked);
 
-                remotes
-            },
-            SomeIdentity::Person(_) => {
-                tracking::tracked_peers(storage, Some(&urn))?.collect::<BTreeSet<_>>()
-            },
+                    remotes
+                },
+                SomeIdentity::Person(_) => tracking::tracked_peers(storage, Some(&urn))?
+                    .collect::<Result<BTreeSet<_>, _>>()?,
 
-            unknown => return Err(Error::UnknownIdentityKind(unknown)),
-        };
+                unknown => return Err(Error::UnknownIdentityKind(unknown)),
+            };
 
         let fetch::FetchResult { updated_tips } = fetcher
             .fetch(fetch::Fetchspecs::Peek {
@@ -477,7 +479,7 @@ fn adopt_rad_self(storage: &Storage, urn: &Urn, peer: PeerId) -> Result<(), Erro
             if !storage.has_urn(&person.urn())? {
                 ensure_rad_id(storage, &rad_id, person.content_id)?;
                 symref(storage, &rad_id, rad_self)?;
-                tracking::track(storage, &rad_id, Some(peer), None)?;
+                tracking::track(storage, &rad_id, Some(peer), tracking::Config::default())?;
             }
         }
     }
@@ -603,7 +605,12 @@ mod person {
                 // Track all delegations
                 for peer_id in delegations.iter() {
                     if peer_id != local_peer {
-                        tracking::track(storage, &urn, Some(*peer_id), None)?;
+                        tracking::track(
+                            storage,
+                            &urn,
+                            Some(*peer_id),
+                            tracking::Config::default(),
+                        )?;
                         adopt_rad_self(storage, &urn, *peer_id)?;
                     }
                 }
@@ -721,7 +728,7 @@ mod project {
         )?;
         for peer in tracked {
             if peer != *local_peer {
-                tracking::track(storage, &urn, Some(peer), None)?;
+                tracking::track(storage, &urn, Some(peer), tracking::Config::default())?;
                 adopt_rad_self(storage, &urn, peer)?;
             }
         }
@@ -754,11 +761,13 @@ mod project {
         // Read `signed_refs` for all tracked
         let tracked = tracking::tracked_peers(storage, Some(urn))?;
         let tracked_sigrefs = tracked
-            .filter_map(|peer| match Refs::load(storage, urn, peer) {
-                Ok(Some(refs)) => Some(Ok((peer, refs))),
-
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
+            .filter_map(|peer| match peer {
+                Ok(peer) => match Refs::load(storage, urn, peer) {
+                    Ok(Some(refs)) => Some(Ok((peer, refs))),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
+                },
+                Err(e) => Some(Err(e.into())),
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
@@ -851,8 +860,18 @@ mod project {
             identities::person::fast_forward(storage, person)?;
         } else {
             ensure_rad_id(storage, &delegate_urn, person.content_id)?;
-            tracking::track(storage, &delegate_urn, Some(peer), None)?;
-            tracking::track(storage, project_urn, Some(peer), None)?;
+            tracking::track(
+                storage,
+                &delegate_urn,
+                Some(peer),
+                tracking::Config::default(),
+            )?;
+            tracking::track(
+                storage,
+                project_urn,
+                Some(peer),
+                tracking::Config::default(),
+            )?;
         }
 
         // Now point our view to the top-level
@@ -875,7 +894,12 @@ mod project {
             .direct()
             .filter(|&key| key != local_peer_id.as_public_key())
         {
-            tracking::track(storage, &proj.urn(), Some(PeerId::from(*key)), None)?;
+            tracking::track(
+                storage,
+                &proj.urn(),
+                Some(PeerId::from(*key)),
+                tracking::Config::default(),
+            )?;
         }
 
         Ok(())

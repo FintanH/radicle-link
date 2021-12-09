@@ -73,7 +73,7 @@ fn saturate_a_peer_with_projects() {
                     .collect::<Vec<_>>();
                 move |storage| -> Result<(), anyhow::Error> {
                     for urn in urns {
-                        tracking::track(storage, &urn, Some(remote), None)?;
+                        tracking::track(storage, &urn, Some(remote), tracking::Config::default())?;
                     }
                     Ok(())
                 }

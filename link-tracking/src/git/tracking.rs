@@ -164,14 +164,7 @@ where
                     warn!(name=?reference.name, oid=?reference.target, "missing blob");
                     Ok(None)
                 },
-                Some(obj) => {
-                    let config = config::Config::try_from(obj).map_err(|err| Tracked::Config {
-                        reference: reference.name.clone(),
-                        target: reference.target,
-                        source: err.into(),
-                    })?;
-                    Ok(Some(from_reference(&reference.name.as_ref(), config)))
-                },
+                Some(config) => Ok(Some(from_reference(&reference.name.as_ref(), config))),
             }
         }
     };
@@ -253,14 +246,7 @@ where
                 source: err.into(),
             })? {
             None => Ok(None),
-            Some(obj) => {
-                let config = config::Config::try_from(obj).map_err(|err| Get::Config {
-                    reference: reference.name,
-                    target: reference.target,
-                    source: err.into(),
-                })?;
-                Ok(Some(from_reference(&name, config)))
-            },
+            Some(config) => Ok(Some(from_reference(&name, config))),
         },
     }
 }

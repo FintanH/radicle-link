@@ -72,7 +72,8 @@ where
             let res = {
                 let urn = urn.clone();
                 peer.using_storage(move |storage| {
-                    let updated = tracking::track(storage, &urn, Some(peer_id), None)?;
+                    let updated =
+                        tracking::track(storage, &urn, Some(peer_id), tracking::Config::default())?;
 
                     // Skip explicit replication if the peer is already tracked.
                     if updated {

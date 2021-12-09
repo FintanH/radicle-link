@@ -72,13 +72,6 @@ pub enum Update {
 
 #[derive(Debug, Error)]
 pub enum Tracked {
-    #[error("failed to parse the configuration for `{reference}`@`{target}` while getting tracked entries")]
-    Config {
-        reference: Reference<Oid>,
-        target: Oid,
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
     #[error("failed to get object for `{reference}`@`{target}` while getting tracked entries")]
     FindObj {
         reference: Reference<Oid>,
@@ -102,13 +95,6 @@ pub enum Tracked {
 
 #[derive(Debug, Error)]
 pub enum Get {
-    #[error("failed to parse the configuration for `{reference}`@`{target}` while getting entry")]
-    Config {
-        reference: Reference<Oid>,
-        target: Oid,
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
     #[error("failed to get object for `{reference}`@`{target}` while getting entry")]
     FindObj {
         reference: Reference<Oid>,

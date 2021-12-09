@@ -299,7 +299,8 @@ impl Refs {
             }
         }
 
-        let mut remotes = tracking::tracked_peers(storage, Some(urn))?.collect::<Remotes<PeerId>>();
+        let mut remotes =
+            tracking::tracked_peers(storage, Some(urn))?.collect::<Result<Remotes<PeerId>, _>>()?;
 
         for (peer, tracked) in remotes.iter_mut() {
             if let Some(refs) = Self::load(storage, urn, *peer)? {

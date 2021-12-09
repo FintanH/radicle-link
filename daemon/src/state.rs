@@ -551,8 +551,10 @@ where
 {
     {
         let urn = urn.clone();
-        peer.using_storage(move |store| tracking::track(store, &urn, Some(remote_peer), None))
-            .await??;
+        peer.using_storage(move |store| {
+            tracking::track(store, &urn, Some(remote_peer), tracking::Config::default())
+        })
+        .await??;
     }
 
     gossip::query(peer, &urn, Some(remote_peer));
@@ -607,6 +609,7 @@ where
         let mut peers = vec![];
 
         for peer_id in tracking::tracked_peers(store, Some(&urn))? {
+            let peer_id = peer_id?;
             let rad_self =
                 Urn::try_from(Reference::rad_self(Namespace::from(urn.clone()), peer_id))
                     .expect("namespace is set");
