@@ -11,7 +11,7 @@ pub trait Read {
 
     type Oid;
 
-    fn find_blob(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError>;
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError>;
 }
 
 pub trait Write {
@@ -19,5 +19,5 @@ pub trait Write {
 
     type Oid;
 
-    fn write_object(&self, config: &Config) -> Result<Self::Oid, Self::WriteError>;
+    fn write_config(&self, config: &Config) -> Result<Self::Oid, Self::WriteError>;
 }

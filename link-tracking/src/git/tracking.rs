@@ -35,12 +35,12 @@ where
 
     let reference = ReferenceRef::new(urn, peer);
     let mk_ref = || reference.into_owned();
-    match blob(db, &reference).map_err(|err| Track::FindObj {
+    match load_config(db, &reference).map_err(|err| Track::FindObj {
         reference: mk_ref(),
         source: err.into(),
     })? {
         None => {
-            let target = db.write_object(&config).map_err(|err| Track::WriteObj {
+            let target = db.write_config(&config).map_err(|err| Track::WriteObj {
                 reference: mk_ref(),
                 source: err.into(),
             })?;
@@ -64,7 +64,7 @@ where
 
     let reference = ReferenceRef::new(urn, peer);
     let mk_ref = || reference.into_owned();
-    match blob(db, &reference).map_err(|err| Untrack::FindObj {
+    match load_config(db, &reference).map_err(|err| Untrack::FindObj {
         reference: mk_ref(),
         source: err.into(),
     })? {
@@ -97,7 +97,7 @@ where
     })? {
         None => Ok(false),
         Some(reference) => {
-            let oid = db.write_object(&config).map_err(|err| Update::WriteObj {
+            let oid = db.write_config(&config).map_err(|err| Update::WriteObj {
                 reference: mk_ref(),
                 source: err.into(),
             })?;
@@ -154,7 +154,7 @@ where
 
             // Otherwise we attempt to fetch it from the backend
             match db
-                .find_blob(&reference.target)
+                .find_config(&reference.target)
                 .map_err(|err| Tracked::FindObj {
                     reference: reference.name.clone(),
                     target: reference.target,
@@ -246,7 +246,7 @@ where
     })? {
         None => Ok(None),
         Some(reference) => match db
-            .find_blob(&reference.target)
+            .find_config(&reference.target)
             .map_err(|err| Get::FindObj {
                 reference: reference.name.clone(),
                 target: reference.target,
@@ -298,7 +298,7 @@ fn from_reference(
     }
 }
 
-fn blob<'a, Db>(
+fn load_config<'a, Db>(
     db: &'a Db,
     reference: &ReferenceRef<'_, Oid>,
 ) -> Result<Option<config::Config>, error::Blob>
@@ -312,7 +312,7 @@ where
         source: err.into(),
     })? {
         None => Ok(None),
-        Some(r) => Ok(db.find_blob(&r.target).map_err(|err| Blob::FindObj {
+        Some(r) => Ok(db.find_config(&r.target).map_err(|err| Blob::FindObj {
             reference: r.name,
             target: r.target,
             source: err.into(),
