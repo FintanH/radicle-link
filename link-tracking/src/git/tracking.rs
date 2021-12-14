@@ -402,6 +402,49 @@ where
     }
 }
 
+/// Check that the only tracking entry for the given `urn` is the default entry.
+/// This will return false if there are either:
+///   * No tracking entries for the `urn`
+///   * There is at least one tracked peer for the `urn`
+pub fn default_only<Db>(db: &Db, urn: &Urn<Oid>) -> Result<bool, error::DefaultOnly>
+where
+    Db: refdb::Read<Oid = Oid>,
+{
+    use error::DefaultOnly;
+
+    let spec = {
+        let namespace =
+            RefLike::try_from(urn.encode_id()).expect("namespace should be valid ref component");
+        reference::base()
+            .join(namespace)
+            .with_pattern_suffix(refspec_pattern!("*"))
+    };
+    let mut seen_default = false;
+    for reference in db
+        .references(&spec)
+        .map_err(|err| DefaultOnly::References {
+            spec: spec.clone(),
+            source: err.into(),
+        })?
+    {
+        match reference
+            .map_err(|err| DefaultOnly::Iter {
+                spec: spec.clone(),
+                source: err.into(),
+            })?
+            .name
+            .remote
+        {
+            Remote::Default => {
+                seen_default = true;
+            },
+            Remote::Peer(_) => return Ok(false),
+        }
+    }
+
+    Ok(seen_default)
+}
+
 fn from_reference(reference: &RefName<'_, Oid>, config: Config) -> Tracked<Oid, Config> {
     match reference.remote {
         Remote::Default => Tracked::Default {
