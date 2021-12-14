@@ -180,6 +180,22 @@ pub enum IsTracked {
 }
 
 #[derive(Debug, Error)]
+pub enum DefaultOnly {
+    #[error("failed to unpack a reference entry while getting tracked entries for `{spec}`")]
+    Iter {
+        spec: RefspecPattern,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+    #[error("failed getting tracked entries for `{spec}`")]
+    References {
+        spec: RefspecPattern,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+}
+
+#[derive(Debug, Error)]
 pub enum Config {
     #[error("failed to get object for `{reference}@{target}` while loading blob")]
     FindObj {
