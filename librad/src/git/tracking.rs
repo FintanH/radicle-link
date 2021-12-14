@@ -12,6 +12,7 @@ pub use link_tracking::{
     git::{
         config::Config,
         tracking::{
+            default_only,
             error,
             get,
             is_tracked,
