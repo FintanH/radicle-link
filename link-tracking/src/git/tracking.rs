@@ -16,7 +16,7 @@ use crate::tracking;
 use super::{
     config::{self, Config},
     odb,
-    refdb,
+    refdb::{self, Scan},
 };
 
 pub mod batch;
@@ -63,10 +63,7 @@ pub fn track<'a, Db>(
     policy: policy::Track,
 ) -> Result<Result<Ref, PreviousError>, error::Track>
 where
-    Db: odb::Read<Oid = Oid>
-        + odb::Write<Oid = Oid>
-        + refdb::Read<'a, Oid = Oid>
-        + refdb::Write<Oid = Oid>,
+    Db: odb::Read<Oid = Oid> + odb::Write<Oid = Oid> + refdb::Write<Oid = Oid>,
 {
     let reference = RefName::borrowed(urn, peer);
     let target = db
@@ -134,7 +131,7 @@ where
     F: FnOnce(Config) -> Config,
     Db: odb::Read<Oid = Oid>
         + odb::Write<Oid = Oid>
-        + refdb::Read<'a, Oid = Oid>
+        + refdb::Find<Oid = Oid>
         + refdb::Write<Oid = Oid>,
 {
     let name = RefName::borrowed(urn, peer);
@@ -219,7 +216,7 @@ pub fn untrack<'a, Db>(
     policy: policy::Untrack,
 ) -> Result<Result<Option<Oid>, PreviousError>, error::Untrack>
 where
-    Db: odb::Read<Oid = Oid> + refdb::Read<'a, Oid = Oid> + refdb::Write<Oid = Oid>,
+    Db: odb::Read<Oid = Oid> + refdb::Write<Oid = Oid>,
 {
     let reference = RefName::borrowed(urn, peer);
     db.update(Some(refdb::Update::Delete {
@@ -272,9 +269,10 @@ pub fn untrack_all<'a, Db>(
     db: &'a Db,
     urn: &Urn<Oid>,
     policy: policy::UntrackAll,
-) -> Result<impl Iterator<Item = Result<RefName<'a, Oid>, PreviousError>>, error::UntrackAll>
+) -> Result<impl Iterator<Item = Result<RefName<'static, Oid>, PreviousError>>, error::UntrackAll>
 where
-    Db: refdb::Read<'a, Oid = Oid> + refdb::Write<Oid = Oid>,
+    &'a Db: refdb::Scan<Oid = Oid>,
+    Db: refdb::Write<Oid = Oid>,
 {
     let prefix = reflike!("refs/rad/remotes");
     let namespace =
@@ -291,7 +289,7 @@ where
             })?;
         refs.map(|r| {
             r.map(|r| refdb::Update::Delete {
-                name: r.name,
+                name: r.name.into_owned(),
                 previous: policy.into_previous_value(r.target),
             })
         })
@@ -343,13 +341,15 @@ pub fn tracked<'a, Db>(
     filter_by: Option<&Urn<Oid>>,
 ) -> Result<TrackedEntries<'a>, error::Tracked>
 where
-    Db: odb::Read<Oid = Oid> + refdb::Read<'a, Oid = Oid>,
+    &'a Db: refdb::Scan<Oid = Oid>,
+    Db: odb::Read<Oid = Oid>,
 {
     let spec = remotes_refspec(filter_by);
     let seen: BTreeMap<Oid, Config> = BTreeMap::new();
     let resolve = {
         let spec = spec.clone();
-        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| -> Result<Option<Tracked>, error::Tracked> {
+        let db = db.clone();
+        move |reference: Result<refdb::Ref<Oid>, <&'a Db as refdb::Scan>::IterError>| -> Result<Option<Tracked>, error::Tracked> {
             let reference = reference.map_err(|err| error::Tracked::Iter {
                 spec: spec.clone(),
                 source: err.into(),
@@ -379,7 +379,8 @@ where
 
     Ok(TrackedEntries {
         inner: Box::new(
-            db.references(&spec)
+            db.clone()
+                .references(&spec)
                 .map_err(|err| error::Tracked::References {
                     spec: spec.clone(),
                     source: err.into(),
@@ -408,12 +409,13 @@ pub fn tracked_peers<'a, Db>(
     filter_by: Option<&Urn<Oid>>,
 ) -> Result<TrackedPeers<'a>, error::TrackedPeers>
 where
-    Db: odb::Read<Oid = Oid> + refdb::Read<'a, Oid = Oid>,
+    &'a Db: refdb::Scan<Oid = Oid>,
+    Db: odb::Read<Oid = Oid>,
 {
     let spec = remotes_refspec(filter_by);
     let resolve = {
         let spec = spec.clone();
-        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| -> Result<Option<PeerId>, error::TrackedPeers> {
+        move |reference: Result<refdb::Ref<Oid>, <&'a Db as refdb::Scan>::IterError>| -> Result<Option<PeerId>, error::TrackedPeers> {
             let reference = reference.map_err(|err| error::TrackedPeers::Iter {
                 spec: spec.clone(),
                 source: err.into(),
@@ -445,7 +447,7 @@ pub fn get<'a, Db>(
     peer: Option<PeerId>,
 ) -> Result<Option<Tracked>, error::Get>
 where
-    Db: odb::Read<Oid = Oid> + refdb::Read<'a, Oid = Oid>,
+    Db: odb::Read<Oid = Oid> + refdb::Find<Oid = Oid>,
 {
     let name = RefName::borrowed(urn, peer);
     match db
@@ -477,7 +479,7 @@ pub fn is_tracked<'a, Db>(
     peer: Option<PeerId>,
 ) -> Result<bool, error::IsTracked>
 where
-    Db: refdb::Read<'a, Oid = Oid>,
+    Db: refdb::Find<Oid = Oid>,
 {
     let name = RefName::borrowed(urn, peer);
     match db
@@ -497,7 +499,7 @@ where
 ///   * There is at least one tracked peer for the `urn`
 pub fn default_only<'a, Db>(db: &'a Db, urn: &Urn<Oid>) -> Result<bool, error::DefaultOnly>
 where
-    Db: refdb::Read<'a, Oid = Oid>,
+    &'a Db: refdb::Scan<Oid = Oid>,
 {
     let spec = remotes_refspec(Some(urn));
     let mut seen_default = false;

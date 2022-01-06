@@ -20,24 +20,28 @@ pub struct Ref<'a, Oid: ToOwned + Clone> {
     pub target: Oid,
 }
 
-pub trait Read<'a> {
+pub trait Find {
     type FindError: std::error::Error + Send + Sync + 'static;
-    type ReferencesError: std::error::Error + Send + Sync + 'static;
-    type IterError: std::error::Error + Send + Sync + 'static;
-
     type Oid: Clone + 'static;
-    type References: Iterator<Item = Result<Ref<'a, Self::Oid>, Self::IterError>>;
 
     /// Get a [`Ref`] by `name`, returning `None` if no such reference exists.
     fn find_reference(
         &self,
         name: &RefName<'_, Self::Oid>,
     ) -> Result<Option<Ref<Self::Oid>>, Self::FindError>;
+}
+
+pub trait Scan {
+    type ReferencesError: std::error::Error + Send + Sync + 'static;
+    type IterError: std::error::Error + Send + Sync + 'static;
+
+    type Oid: Clone + 'static;
+    type References: Iterator<Item = Result<Ref<'static, Self::Oid>, Self::IterError>>;
 
     /// Get all [`Ref`]s that match the given `refspec`.
     #[allow(clippy::type_complexity)]
     fn references(
-        &'a self,
+        self,
         refspec: &RefspecPattern,
     ) -> Result<Self::References, Self::ReferencesError>;
 }

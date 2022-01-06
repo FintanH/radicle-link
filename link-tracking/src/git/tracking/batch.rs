@@ -92,7 +92,7 @@ pub fn batch<'a, Db, I>(db: &'a Db, actions: I) -> Result<Applied, error::Batch>
 where
     Db: odb::Read<Oid = Oid>
         + odb::Write<Oid = Oid>
-        + refdb::Read<'a, Oid = Oid>
+        + refdb::Find<Oid = Oid>
         + refdb::Write<Oid = Oid>,
     I: IntoIterator<Item = Action<'a, Oid>> + 'a,
 {
@@ -109,7 +109,7 @@ fn into_updates<'a, Db, I>(
     actions: I,
 ) -> impl Iterator<Item = Result<refdb::Update<'a, Oid>, error::Batch>> + 'a
 where
-    Db: odb::Read<Oid = Oid> + odb::Write<Oid = Oid> + refdb::Read<'a, Oid = Oid>,
+    Db: odb::Read<Oid = Oid> + odb::Write<Oid = Oid> + refdb::Find<Oid = Oid>,
     I: IntoIterator<Item = Action<'a, Oid>> + 'a,
 {
     let mut seen: HashMap<Config, Oid> = HashMap::new();
@@ -194,7 +194,7 @@ fn on_existing<'a, Db>(
     callback: impl FnOnce(&refdb::Ref<'_, Oid>) -> Result<refdb::Update<'a, Oid>, error::Batch>,
 ) -> Result<Option<refdb::Update<'a, Oid>>, error::Batch>
 where
-    Db: refdb::Read<'a, Oid = Oid>,
+    Db: refdb::Find<Oid = Oid>,
 {
     db.find_reference(name)
         .map_err(|err| error::Batch::FindRef {
@@ -211,7 +211,7 @@ fn on_missing<'a, Db>(
     callback: impl FnOnce() -> Result<refdb::Update<'a, Oid>, error::Batch>,
 ) -> Result<Option<refdb::Update<'a, Oid>>, error::Batch>
 where
-    Db: refdb::Read<'a, Oid = Oid>,
+    Db: refdb::Find<Oid = Oid>,
 {
     match db
         .find_reference(name)
