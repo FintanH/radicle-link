@@ -70,13 +70,13 @@ where
                     .using_storage({
                         let urn = urn.clone();
                         move |storage| -> anyhow::Result<bool> {
-                            match tracking::track(
-                                storage,
-                                &urn,
-                                Some(peer_id),
-                                tracking::Config::default(),
-				tracking::policy::Track::Any,
-                            )? {
+			    match tracking::track(
+				storage,
+				&urn,
+				Some(peer_id),
+				tracking::Config::default(),
+				tracking::policy::Track::MustNotExist,
+			    )? {
 				Ok(reference) => {
 				    trace!(name=%reference.name, target=%reference.target, "created tracking entry");
 				    Ok(true)
