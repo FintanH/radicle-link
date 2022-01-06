@@ -11,7 +11,7 @@ use link_crypto::PeerId;
 use link_identities::urn::Urn;
 use radicle_git_ext::{Oid, RefLike, RefspecPattern};
 
-use crate::tracking::Tracked;
+use crate::tracking;
 
 use super::{
     config::{self, Config},
@@ -28,6 +28,7 @@ pub use reference::{RefName, Remote};
 
 pub type Ref = refdb::Ref<'static, Oid>;
 pub type PreviousError = refdb::PreviousError<Oid>;
+pub type Tracked = tracking::Tracked<Oid, Config>;
 
 /// Track the `urn` for the given `peer`, storing the provided `config` at
 /// `refs/rad/remotes/<urn>/(<peer> | default)`.
@@ -325,11 +326,11 @@ where
 
 /// Iterator of [`Tracked`] entries.
 pub struct TrackedEntries<'a> {
-    inner: Box<dyn Iterator<Item = Result<Tracked<Oid, Config>, error::Tracked>> + 'a>,
+    inner: Box<dyn Iterator<Item = Result<Tracked, error::Tracked>> + 'a>,
 }
 
 impl<'a> Iterator for TrackedEntries<'a> {
-    type Item = Result<Tracked<Oid, Config>, error::Tracked>;
+    type Item = Result<Tracked, error::Tracked>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
@@ -348,7 +349,7 @@ where
     let seen: BTreeMap<Oid, Config> = BTreeMap::new();
     let resolve = {
         let spec = spec.clone();
-        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| {
+        move |reference: Result<refdb::Ref<Oid>, Db::IterError>| -> Result<Option<Tracked>, error::Tracked> {
             let reference = reference.map_err(|err| error::Tracked::Iter {
                 spec: spec.clone(),
                 source: err.into(),
@@ -442,7 +443,7 @@ pub fn get<'a, Db>(
     db: &Db,
     urn: &'_ Urn<Oid>,
     peer: Option<PeerId>,
-) -> Result<Option<Tracked<Oid, Config>>, error::Get>
+) -> Result<Option<Tracked>, error::Get>
 where
     Db: odb::Read<Oid = Oid> + refdb::Read<'a, Oid = Oid>,
 {
@@ -525,7 +526,7 @@ where
     Ok(seen_default)
 }
 
-fn from_reference(name: &RefName<'_, Oid>, config: Config) -> Tracked<Oid, Config> {
+fn from_reference(name: &RefName<'_, Oid>, config: Config) -> Tracked {
     match name.remote {
         Remote::Default => Tracked::Default {
             urn: name.urn.clone().into_owned(),
