@@ -15,7 +15,18 @@ use std_ext::Void;
 use thiserror::Error;
 
 use super::{error, read, ReadOnly, Storage};
-use crate::{paths::Paths, Signer};
+use crate::{
+    git::tracking::{
+        self,
+        git::{
+            odb,
+            refdb::{self, Ref},
+        },
+        reference::RefName,
+    },
+    paths::Paths,
+    Signer,
+};
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -83,6 +94,44 @@ impl AsRef<ReadOnly> for PooledRef<Storage> {
 impl<S> From<Object<S, InitError>> for PooledRef<S> {
     fn from(obj: Object<S, InitError>) -> Self {
         Self(obj)
+    }
+}
+
+impl<S: refdb::Find> refdb::Find for PooledRef<S> {
+    type FindError = S::FindError;
+
+    type Oid = S::Oid;
+
+    fn find_reference(
+        &self,
+        reference: &RefName<'_, Self::Oid>,
+    ) -> Result<Option<Ref<Self::Oid>>, Self::FindError> {
+        self.as_ref().find_reference(reference)
+    }
+}
+
+impl<S: refdb::Scan> refdb::Scan for PooledRef<S> {
+    type ReferencesError = S::ReferencesError;
+    type IterError = S::IterError;
+
+    type Oid = S::Oid;
+    type References = S::References;
+
+    fn references(
+        self,
+        refspec: &git_ext::RefspecPattern,
+    ) -> Result<Self::References, Self::ReferencesError> {
+        self.deref().references(refspec)
+    }
+}
+
+impl<S: odb::Read> odb::Read for PooledRef<S> {
+    type FindError = S::FindError;
+
+    type Oid = S::Oid;
+
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<tracking::Config>, Self::FindError> {
+        self.as_ref().find_config(oid)
     }
 }
 

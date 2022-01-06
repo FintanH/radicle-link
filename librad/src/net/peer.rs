@@ -9,7 +9,7 @@ use futures::{future, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use link_async::Spawner;
 
 use crate::{
-    git::{self, identities::local::LocalIdentity, Urn},
+    git::{self, identities::local::LocalIdentity, tracking, Urn},
     net::{
         protocol::{self, gossip},
         replication::{self, Replication},
@@ -281,6 +281,80 @@ where
                 .err_into()
                 .await
         }
+    }
+
+    pub async fn track(
+        &self,
+        urn: &Urn,
+        peer: Option<PeerId>,
+        config: tracking::Config,
+    ) -> Result<Option<tracking::Ref>, error::Track> {
+        let storage = self.user_store.get().await?;
+        match tracking::track(
+            storage.as_ref(),
+            urn,
+            peer,
+            config,
+            tracking::policy::Track::MustNotExist,
+        )? {
+            Ok(reference) => Ok(Some(reference)),
+            Err(err) => {
+                let peer = peer.map(|p| p.to_string()).unwrap_or("default".to_string());
+                tracing::trace!(urn = %urn, peer = %peer, reason = %err, "failed to track");
+                Ok(None)
+            },
+        }
+    }
+
+    pub async fn untrack(
+        &self,
+        urn: &Urn,
+        peer: PeerId,
+    ) -> Result<Option<git_ext::Oid>, error::Untrack> {
+        let storage = self.user_store.get().await?;
+        match tracking::untrack(
+            storage.as_ref(),
+            urn,
+            peer,
+            tracking::policy::Untrack::MustExist,
+        )? {
+            Ok(oid) => Ok(oid),
+            Err(err) => {
+                tracing::trace!(urn = %urn, peer = %peer, reason = %err, "failed to untrack");
+                Ok(None)
+            },
+        }
+    }
+
+    pub async fn untrack_all(
+        &self,
+        urn: &Urn,
+    ) -> Result<
+        impl Iterator<Item = Result<tracking::RefName<'static, git_ext::Oid>, tracking::PreviousError>>,
+        error::UntrackAll,
+    > {
+        let storage = self.user_store.get().await?;
+        Ok(tracking::untrack_all(
+            &*storage,
+            urn,
+            tracking::policy::UntrackAll::MustExistAndMatch,
+        )?)
+    }
+
+    pub async fn tracked<'a>(
+        &'a self,
+        filter_by: Option<&Urn>,
+    ) -> Result<tracking::TrackedEntries<'a>, error::Tracked> {
+        let storage = git::storage::Pooled::get(&self.user_store).await?;
+        Ok(tracking::tracked(storage, filter_by)?)
+    }
+
+    pub async fn tracked_peers<'a>(
+        &'a self,
+        filter_by: Option<&Urn>,
+    ) -> Result<tracking::TrackedPeers<'a>, error::TrackedPeers> {
+        let storage = self.user_store.get().await?;
+        Ok(tracking::tracked_peers(storage, filter_by)?)
     }
 
     // TODO: Augment `Connected` such that we can provide an alternative API,

@@ -6,7 +6,7 @@
 use thiserror::Error;
 
 use crate::{
-    git::storage,
+    git::{storage, tracking},
     net::{protocol::cache, replication},
     PeerId,
 };
@@ -59,4 +59,49 @@ pub enum Replicate {
 
     #[error(transparent)]
     Replicate(#[from] replication::error::Replicate),
+}
+
+#[derive(Debug, Error)]
+pub enum Track {
+    #[error("failed to borrow storage from pool")]
+    Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    Track(#[from] tracking::error::Track),
+}
+
+#[derive(Debug, Error)]
+pub enum Tracked {
+    #[error("failed to borrow storage from pool")]
+    Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    Track(#[from] tracking::error::Tracked),
+}
+
+#[derive(Debug, Error)]
+pub enum TrackedPeers {
+    #[error("failed to borrow storage from pool")]
+    Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    Track(#[from] tracking::error::TrackedPeers),
+}
+
+#[derive(Debug, Error)]
+pub enum Untrack {
+    #[error("failed to borrow storage from pool")]
+    Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    Untrack(#[from] tracking::error::Untrack),
+}
+
+#[derive(Debug, Error)]
+pub enum UntrackAll {
+    #[error("failed to borrow storage from pool")]
+    Pool(#[from] storage::PoolError),
+
+    #[error(transparent)]
+    UntrackAll(#[from] tracking::error::UntrackAll),
 }

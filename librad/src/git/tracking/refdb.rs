@@ -4,7 +4,7 @@
 // Linking Exception. For full terms see the included LICENSE file.
 
 use link_tracking::git::{
-    refdb::{self, Applied, PreviousError, Read, Update, Updated, Write},
+    refdb::{self, Applied, Find, PreviousError, Scan, Update, Updated, Write},
     tracking::reference::RefName,
 };
 
@@ -82,7 +82,7 @@ pub mod error {
     }
 }
 
-fn convert(r: git2::Reference<'_>) -> Result<Ref, error::Conversion> {
+fn convert(r: git2::Reference<'_>) -> Result<refdb::Ref<'static, ext::Oid>, error::Conversion> {
     let name = r.name().ok_or(error::Conversion::Format)?;
     Ok(Ref {
         name: name.parse()?,
@@ -97,7 +97,7 @@ pub struct References<'a> {
 }
 
 impl<'a> Iterator for References<'a> {
-    type Item = Result<Ref<'a>, error::Iter>;
+    type Item = Result<Ref<'static>, error::Iter>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|reference| {
@@ -107,14 +107,10 @@ impl<'a> Iterator for References<'a> {
         })
     }
 }
-
-impl<'a> Read<'a> for ReadOnly {
+impl Find for ReadOnly {
     type FindError = error::Find;
-    type ReferencesError = read::Error;
-    type IterError = error::Iter;
 
     type Oid = ext::Oid;
-    type References = References<'a>;
 
     fn find_reference(
         &self,
@@ -131,9 +127,17 @@ impl<'a> Read<'a> for ReadOnly {
             })
             .transpose()?)
     }
+}
+
+impl<'a> Scan for &'a ReadOnly {
+    type ReferencesError = read::Error;
+    type IterError = error::Iter;
+
+    type Oid = ext::Oid;
+    type References = References<'a>;
 
     fn references(
-        &'a self,
+        self,
         spec: &ext::RefspecPattern,
     ) -> Result<Self::References, Self::ReferencesError> {
         let references = ReadOnlyStorage::references(self, spec)?;
@@ -141,13 +145,10 @@ impl<'a> Read<'a> for ReadOnly {
     }
 }
 
-impl<'a> Read<'a> for Storage {
+impl Find for Storage {
     type FindError = error::Find;
-    type ReferencesError = read::Error;
-    type IterError = error::Iter;
 
     type Oid = ext::Oid;
-    type References = References<'a>;
 
     fn find_reference(
         &self,
@@ -155,12 +156,20 @@ impl<'a> Read<'a> for Storage {
     ) -> Result<Option<Ref>, Self::FindError> {
         self.read_only().find_reference(reference)
     }
+}
+
+impl<'a> Scan for &'a Storage {
+    type ReferencesError = read::Error;
+    type IterError = error::Iter;
+
+    type Oid = ext::Oid;
+    type References = References<'a>;
 
     fn references(
-        &'a self,
+        self,
         spec: &ext::RefspecPattern,
     ) -> Result<Self::References, Self::ReferencesError> {
-        Read::references(self.read_only(), spec)
+        Scan::references(self.read_only(), spec)
     }
 }
 

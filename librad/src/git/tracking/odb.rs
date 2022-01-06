@@ -57,6 +57,27 @@ pub mod error {
     }
 }
 
+impl Read for &ReadOnly {
+    type FindError = error::Find;
+
+    type Oid = ext::Oid;
+
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError> {
+        match self.find_object(oid)? {
+            None => Ok(None),
+            Some(obj) => {
+                let blob = obj.into_blob().map_err(|_| error::Find::NotBlob(*oid))?;
+                Config::try_from(blob.content())
+                    .map(Some)
+                    .map_err(|err| error::Find::Config {
+                        oid: *oid,
+                        source: err,
+                    })
+            },
+        }
+    }
+}
+
 impl Read for ReadOnly {
     type FindError = error::Find;
 
@@ -79,6 +100,16 @@ impl Read for ReadOnly {
 }
 
 impl Read for Storage {
+    type FindError = error::Find;
+
+    type Oid = ext::Oid;
+
+    fn find_config(&self, oid: &Self::Oid) -> Result<Option<Config>, Self::FindError> {
+        self.read_only().find_config(oid)
+    }
+}
+
+impl Read for &Storage {
     type FindError = error::Find;
 
     type Oid = ext::Oid;
