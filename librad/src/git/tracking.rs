@@ -11,21 +11,7 @@ mod refdb;
 pub use link_tracking::{
     git::{
         config::Config,
-        tracking::{
-            default_only,
-            error,
-            get,
-            is_tracked,
-            policy,
-            track,
-            tracked,
-            tracked_peers,
-            untrack,
-            TrackedEntries,
-            TrackedPeers,
-        },
+        tracking::{batch::*, *},
     },
     *,
 };
-
-pub type Tracked = tracking::Tracked<git_ext::Oid, Config>;
