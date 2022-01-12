@@ -177,12 +177,14 @@ impl Write for Storage {
         let mut txn = raw.transaction().map_err(error::Txn::Acquire)?;
         let mut applied = Applied::default();
         let mut reject_or_update =
-            |previous: Option<PreviousError<Self::Oid>>, update: Updated<'a, Self::Oid>| {
-                match previous {
-                    None => applied.updates.push(update),
-                    Some(rejection) => applied.rejections.push(rejection),
-                }
+            |apply: Result<Updated<'a, Self::Oid>, PreviousError<Self::Oid>>| match apply {
+                Ok(update) => applied.updates.push(update),
+                Err(rejection) => applied.rejections.push(rejection),
             };
+        let flip = |res| match res {
+            Ok(t) => Err(t),
+            Err(e) => Ok(e),
+        };
 
         for update in updates {
             match update {
@@ -206,14 +208,16 @@ impl Write for Storage {
                             })
                     };
                     match self.reference(&name)? {
-                        Some(r) => reject_or_update(
-                            previous.guard(r.target().map(ext::Oid::from).as_ref(), set)?,
-                            Updated::Written { name, target },
-                        ),
-                        None => reject_or_update(
-                            previous.guard(None, set)?,
-                            Updated::Written { name, target },
-                        ),
+                        Some(r) => reject_or_update(flip(
+                            previous
+                                .guard(r.target().map(ext::Oid::from).as_ref(), set)?
+                                .ok_or(Updated::Written { name, target }),
+                        )),
+                        None => reject_or_update(flip(
+                            previous
+                                .guard(None, set)?
+                                .ok_or(Updated::Written { name, target }),
+                        )),
                     }
                 },
                 Update::Delete { name, previous } => {
@@ -229,25 +233,24 @@ impl Write for Storage {
                         })
                     };
                     match self.reference(&name)? {
-                        Some(r) => reject_or_update(
-                            previous.guard(r.target().map(ext::Oid::from).as_ref(), delete)?,
-                            Updated::Deleted {
-                                name,
-                                previous: Some(
-                                    r.target()
+                        Some(r) => reject_or_update(flip(
+                            previous
+                                .guard(r.target().map(ext::Oid::from).as_ref(), delete)?
+                                .ok_or(Updated::Deleted {
+                                    name,
+                                    previous: r
+                                        .target()
                                         .map(Ok)
                                         .unwrap_or(Err(error::SymbolicRef))?
                                         .into(),
-                                ),
-                            },
-                        ),
-                        None => reject_or_update(
-                            previous.guard(None, delete)?,
-                            Updated::Deleted {
-                                name,
-                                previous: None,
-                            },
-                        ),
+                                }),
+                        )),
+                        None => match previous {
+                            refdb::PreviousValue::Any
+                            | refdb::PreviousValue::MustNotExist
+                            | refdb::PreviousValue::IfExistsMustMatch(_) => { /* no-op */ },
+                            _ => reject_or_update(Err(PreviousError::DidNotExist)),
+                        },
                     }
                 },
             }
