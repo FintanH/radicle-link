@@ -427,7 +427,10 @@ where
                 spec: self.spec.clone(),
                 source: err.into(),
             })
-            .map(|reference| reference.name.remote.into())
+            .and_then(|reference| match reference.name.remote {
+                Remote::Default => self.next().transpose(),
+                Remote::Peer(peer) => Ok(Some(peer)),
+            })
             .transpose()
         })
     }
