@@ -9,6 +9,7 @@ use std::{
     iter::FromIterator,
     slice,
     str::{self, FromStr},
+    vec,
 };
 
 use crate::{Canonical, Cstring};
@@ -381,28 +382,26 @@ impl Array {
         self.0.len()
     }
 
-    pub fn iter(&self) -> ArrayIter<'_> {
-        ArrayIter {
-            iter: self.0.iter(),
-        }
+    pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
+        self.into_iter()
     }
 }
 
-pub struct ArrayIter<'a> {
-    iter: slice::Iter<'a, Value>,
+impl IntoIterator for Array {
+    type Item = Value;
+    type IntoIter = vec::IntoIter<Value>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
 }
 
-impl<'a> Iterator for ArrayIter<'a> {
+impl<'a> IntoIterator for &'a Array {
     type Item = &'a Value;
+    type IntoIter = slice::Iter<'a, Value>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
-    }
-}
-
-impl<'a> ExactSizeIterator for ArrayIter<'a> {
-    fn len(&self) -> usize {
-        self.iter.len()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
