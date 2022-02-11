@@ -41,7 +41,7 @@ pub fn track(storage: &Storage, paths: &Paths, urn: &Urn, peer: PeerId) -> Resul
 }
 
 pub fn untrack(storage: &Storage, paths: &Paths, urn: &Urn, peer: PeerId) -> Result<(), Error> {
-    let _untracked = tracking::untrack(storage, urn, peer, tracking::policy::Untrack::Any)?;
+    let _untracked = tracking::untrack(storage, urn, peer, tracking::policy::Untrack::Any, false)?;
     include::update(storage, paths, urn)?;
     Ok(())
 }
