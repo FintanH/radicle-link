@@ -20,6 +20,7 @@ use directories::{BaseDirs, ProjectDirs};
 /// directory when created with [`Paths::from_root`].
 #[derive(Clone, Debug)]
 pub struct Paths {
+    seeds_dir: PathBuf,
     keys_dir: PathBuf,
     git_dir: PathBuf,
     git_includes_dir: PathBuf,
@@ -39,6 +40,7 @@ impl Paths {
         let cache_dir = proj.cache_dir().join(profile_id);
 
         Self {
+            seeds_dir: config_dir.join("seeds"),
             keys_dir: config_dir.join("keys"),
             git_dir: data_dir.join("git"),
             git_includes_dir: config_dir.join("git-includes"),
@@ -52,6 +54,7 @@ impl Paths {
     pub fn from_root(root: impl AsRef<Path>) -> Result<Self, io::Error> {
         let root = root.as_ref();
         Self {
+            seeds_dir: root.join("seeds"),
             keys_dir: root.join("keys"),
             git_dir: root.join("git"),
             git_includes_dir: root.join("git-includes"),
@@ -77,10 +80,15 @@ impl Paths {
         &self.cob_cache_dir
     }
 
+    pub fn seeds_dir(&self) -> &Path {
+        &self.seeds_dir
+    }
+
     pub fn all_dirs(&self) -> impl Iterator<Item = &Path> {
         // Nb. this pattern match is here to keep the map consistent with the
         // struct fields
         let Self {
+            seeds_dir,
             keys_dir,
             git_dir,
             git_includes_dir,
@@ -89,6 +97,7 @@ impl Paths {
         } = self;
 
         vec![
+            seeds_dir.as_path(),
             keys_dir.as_path(),
             git_dir.as_path(),
             git_includes_dir.as_path(),
