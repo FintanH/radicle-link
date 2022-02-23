@@ -12,7 +12,6 @@ use std::{fmt, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 use structopt::StructOpt;
 
 use librad::{
-    crypto,
     git::Urn,
     net::Network,
     profile::{ProfileId, RadHome},
@@ -20,11 +19,13 @@ use librad::{
 };
 use rad_clib::keys::ssh::SshAuthSock;
 
+use crate::seed::Seed;
+
 #[derive(Debug, Default, Eq, PartialEq, StructOpt)]
 pub struct Args {
     /// List of bootstrap nodes for initial discovery.
     #[structopt(long = "bootstrap", name = "bootstrap")]
-    pub bootstraps: Vec<Bootstrap>,
+    pub bootstraps: Vec<Seed<String>>,
 
     /// Identifier of the profile the daemon will run for. This value determines
     /// which monorepo (if existing) on disk will be the backing storage.
@@ -68,38 +69,6 @@ pub struct Args {
     /// shutdown.
     #[structopt(long)]
     pub linger_timeout: Option<LingerTimeout>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Bootstrap {
-    pub addr: String,
-    pub peer_id: PeerId,
-}
-
-impl fmt::Display for Bootstrap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.peer_id, self.addr)
-    }
-}
-
-impl FromStr for Bootstrap {
-    type Err = String;
-
-    fn from_str(src: &str) -> Result<Self, Self::Err> {
-        match src.split_once('@') {
-            Some((peer_id, addr)) => {
-                let peer_id = peer_id
-                    .parse()
-                    .map_err(|e: crypto::peer::conversion::Error| e.to_string())?;
-
-                Ok(Self {
-                    addr: addr.to_string(),
-                    peer_id,
-                })
-            },
-            None => Err("missing peer id".to_string()),
-        }
-    }
 }
 
 #[derive(Debug, Eq, PartialEq, StructOpt)]
