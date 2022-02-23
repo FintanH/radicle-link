@@ -7,6 +7,7 @@ use std::{
     convert::TryFrom,
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs as _},
+    path::Path,
     time::Duration,
 };
 
@@ -31,8 +32,12 @@ use rad_clib::keys;
 
 use crate::{args, tracking::Tracker};
 
-mod seed;
-pub use seed::{Seed, Seeds};
+use crate::seed::{
+    self,
+    store::{self, KVStore, Scan as _},
+    Seed,
+    Seeds,
+};
 
 lazy_static::lazy_static! {
     /// General binding to any available port, i.e. `0.0.0.0:0`.
@@ -67,8 +72,8 @@ pub enum Error {
     #[error(transparent)]
     SecretKey(#[from] IntoSecretKeyError),
 
-    #[error("resolving seed nodes")]
-    Seed(#[from] seed::Error),
+    #[error(transparent)]
+    Seed(#[from] seed::error::Resolve),
 
     #[error(transparent)]
     Timeout(#[from] Elapsed),
@@ -96,9 +101,13 @@ pub struct Cfg<Disco, Signer> {
 
 impl Cfg<discovery::Static, BoxedSigner> {
     pub async fn from_args(args: &args::Args) -> Result<Self, Error> {
-        let seeds = Seeds::resolve(&args.bootstraps).await?;
-        let disco = discovery::Static::try_from(seeds)?;
         let profile = Profile::try_from(args)?;
+        let seeds = load_seeds(
+            store::file::default_path(profile.paths()),
+            args.bootstraps.clone(),
+        )
+        .await?;
+        let disco = discovery::Static::try_from(seeds)?;
         let signer = construct_signer(args, &profile).await?;
 
         // Ensure the storage is accessible for the created profile and signer.
@@ -227,4 +236,15 @@ async fn construct_signer(args: &args::Args, profile: &Profile) -> anyhow::Resul
             Ok(BoxedSigner::from(key))
         },
     }
+}
+
+async fn load_seeds(
+    seed_path: impl AsRef<Path>,
+    bootstraps: Vec<Seed<String>>,
+) -> anyhow::Result<Seeds> {
+    let store = KVStore::new(seed_path)?;
+    // SAFETY: scan is Infallible, but its iter is not
+    let mut seeds = store.scan().unwrap().collect::<Result<Vec<_>, _>>()?;
+    seeds.extend(bootstraps);
+    Ok(Seeds::resolve(seeds.iter()).await?)
 }
