@@ -16,6 +16,7 @@ use crate::{
     list,
     paths,
     peer_id,
+    seed,
     set,
     ssh_add,
     ssh_ready,
@@ -65,6 +66,40 @@ fn eval(sock: SshAuthSock, command: Command) -> anyhow::Result<()> {
             println!("git: {}", paths.git_dir().display());
             println!("git includes: {}", paths.git_includes_dir().display());
             println!("keys: {}", paths.keys_dir().display());
+        },
+        Command::Seeds(Seeds { options }) => match options {
+            seeds::Options::Add(seeds::Add { id, peer, addr }) => {
+                let seed = seed::add(None, id, peer, addr)?;
+                println!("{}", seed)
+            },
+            seeds::Options::Get(seeds::Get { id, peer }) => match seed::get(None, id, peer)? {
+                Some(seed) => println!("{}", seed),
+                None => println!("no seed for `{}`", peer),
+            },
+            seeds::Options::Ls(seeds::Ls { id }) => {
+                let seeds = seed::ls(None, id)?;
+                for seed in seeds {
+                    println!("{}", seed);
+                }
+            },
+            seeds::Options::Rm(seeds::Rm { id, peer }) => {
+                let removed = seed::rm(None, id, peer)?;
+                if removed {
+                    println!("removed seed for `{}`", peer);
+                } else {
+                    println!("no seed for `{}`", peer);
+                }
+            },
+            seeds::Options::Set(seeds::Set { id, peer, addr }) => {
+                use node_lib::seed::Seed;
+                match seed::set(None, id, peer, addr.clone())? {
+                    Some(seed) => {
+                        println!("replaced seed {}", seed);
+                        println!("new seed created {}", Seed { peer, addrs: addr });
+                    },
+                    None => println!("new seed created {}", Seed { peer, addrs: addr }),
+                }
+            },
         },
         Command::Ssh(Ssh { options }) => match options {
             ssh::Options::Add(ssh::Add { id, time }) => {
