@@ -25,6 +25,7 @@ use librad::{
 use rad_clib::keys::{self, ssh::SshAuthSock};
 
 pub mod cli;
+pub mod seed;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]

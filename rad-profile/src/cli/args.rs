@@ -5,7 +5,7 @@
 
 use structopt::StructOpt;
 
-use librad::profile::ProfileId;
+use librad::{profile::ProfileId, PeerId};
 
 /// Management of Radicle profiles and their associated configuration data.
 #[derive(Debug, StructOpt)]
@@ -22,6 +22,7 @@ pub enum Command {
     List(List),
     Peer(GetPeerId),
     Paths(GetPaths),
+    Seeds(Seeds),
     Ssh(Ssh),
 }
 
@@ -68,11 +69,95 @@ pub struct GetPaths {
     pub id: Option<ProfileId>,
 }
 
+/// Manage the profile's list of seeds
+#[derive(Debug, StructOpt)]
+pub struct Seeds {
+    #[structopt(subcommand)]
+    pub options: seeds::Options,
+}
+
 /// Manage the profile's key material on the ssh-agent
 #[derive(Debug, StructOpt)]
 pub struct Ssh {
     #[structopt(subcommand)]
     pub options: ssh::Options,
+}
+
+pub mod seeds {
+    use super::*;
+
+    #[derive(Debug, StructOpt)]
+    pub enum Options {
+        Add(Add),
+        Get(Get),
+        Ls(Ls),
+        Rm(Rm),
+        Set(Set),
+    }
+
+    /// Add a seed given its peer and host address, under the given
+    /// profile. If the profile is given it will use the default
+    /// profile.
+    #[derive(Debug, StructOpt)]
+    pub struct Add {
+        /// the identifier of the profile storing the seeds        
+        #[structopt(long)]
+        pub id: Option<ProfileId>,
+        /// the peer identifier of the seed
+        #[structopt(long)]
+        pub peer: PeerId,
+        /// the host address of the seed
+        #[structopt(long)]
+        pub addr: String,
+    }
+
+    /// Get the seed for the given peer, under the given profile. If the profile
+    /// is given it will use the default profile.
+    #[derive(Debug, StructOpt)]
+    pub struct Get {
+        /// the identifier of the profile storing the seeds        
+        #[structopt(long)]
+        pub id: Option<ProfileId>,
+        /// the peer identifier of the seed        
+        #[structopt(long)]
+        pub peer: PeerId,
+    }
+
+    /// List the seed under the given profile. If the profile is given it will
+    /// use the default profile.
+    #[derive(Debug, StructOpt)]
+    pub struct Ls {
+        /// the identifier of the profile storing the seeds        
+        #[structopt(long)]
+        pub id: Option<ProfileId>,
+    }
+
+    /// Remove the seed for the given peer, under the given profile. If the
+    /// profile is given it will use the default profile.
+    #[derive(Debug, StructOpt)]
+    pub struct Rm {
+        /// the identifier of the profile storing the seeds        
+        #[structopt(long)]
+        pub id: Option<ProfileId>,
+        /// the peer identifier of the seed        
+        #[structopt(long)]
+        pub peer: PeerId,
+    }
+
+    /// Set the address of the seed for the given peer, under the given profile.
+    /// If the profile is given it will use the default profile.
+    #[derive(Debug, StructOpt)]
+    pub struct Set {
+        /// the identifier of the profile storing the seeds
+        #[structopt(long)]
+        pub id: Option<ProfileId>,
+        /// the peer identifier of the seed        
+        #[structopt(long)]
+        pub peer: PeerId,
+        /// the host address of the seed        
+        #[structopt(long)]
+        pub addr: String,
+    }
 }
 
 pub mod ssh {
