@@ -4,6 +4,9 @@
   }
 }:
 let
+  # TODO: remove once cargo-nextest is available in nixpkgs
+  # https://github.com/NixOS/nixpkgs/pull/163126
+  cargo-nextest = (pkgs.callPackage ./nix/cargo-nextest/default.nix { });
   stable = pkgs.rust-bin.stable.latest.default;
   rust = stable.override {
     extensions = [ "rust-src" "rust-analysis" ];
@@ -15,6 +18,7 @@ in
     buildInputs = [
         cargo-deny
         cargo-expand
+        cargo-nextest
         cargo-watch
         pkgs.rust-bin.nightly."2021-12-02".rustfmt
         cmake
