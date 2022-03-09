@@ -32,6 +32,7 @@ futures_ringbuf = "0.3.1"
 futures-timer = "3.0"
 kv = "0.22"
 lazy_static = "1"
+lnk-thrussh-agent = "0.1.0"
 log = "0.4"
 minicbor = ">= 0.9.1, < 0.14"
 multibase = "0.9"
@@ -137,10 +138,6 @@ features = [ "small_rng" ]
 [dependencies.rustls]
 version  = "0.19"
 features = ["logging", "dangerous_configuration"]
-
-[dependencies.thrussh-agent]
-git = "https://github.com/FintanH/thrussh"
-branch = "generic-agent"
 
 [dependencies.tracing-subscriber]
 version = "0.3.7"

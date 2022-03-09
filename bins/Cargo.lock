@@ -703,16 +703,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cryptovec"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccc7fa13a6bbb2322d325292c57f4c8e7291595506f8289968a0eb61c3130bdf"
-dependencies = [
- "libc",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "curve25519-dalek"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2099,14 +2089,24 @@ version = "0.1.0"
 dependencies = [
  "futures-lite",
  "librad",
+ "lnk-thrussh-agent",
  "minicbor",
  "once_cell",
  "serde",
  "serde_json",
  "thiserror",
- "thrussh-agent",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "lnk-cryptovec"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae312ad9efaa2ad4c57d6f63b4e5d5261486875125b7bd04d4c685dbc687ff5b"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2119,7 +2119,7 @@ dependencies = [
  "lnk-clib",
  "lnk-identities",
  "lnk-profile",
- "thrussh-agent",
+ "lnk-thrussh-agent",
 ]
 
 [[package]]
@@ -2134,6 +2134,7 @@ dependencies = [
  "libgit2-sys",
  "librad",
  "lnk-clib",
+ "lnk-thrussh-agent",
  "nonempty",
  "radicle-git-ext",
  "radicle-std-ext",
@@ -2141,7 +2142,6 @@ dependencies = [
  "serde_json",
  "similar",
  "thiserror",
- "thrussh-agent",
  "tracing",
  "url",
 ]
@@ -2165,9 +2165,9 @@ dependencies = [
  "futures-lite",
  "librad",
  "lnk-clib",
+ "lnk-thrussh-agent",
  "serde",
  "thiserror",
- "thrussh-agent",
 ]
 
 [[package]]
@@ -2178,6 +2178,34 @@ dependencies = [
  "clap",
  "lnk-exe",
  "lnk-profile",
+]
+
+[[package]]
+name = "lnk-thrussh-agent"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9692c2ff209b052e9e6f658dbb56fe76eaa4761fcbcebc0a36ebd25a968d0f62"
+dependencies = [
+ "async-trait",
+ "byteorder",
+ "data-encoding",
+ "futures",
+ "lnk-cryptovec",
+ "lnk-thrussh-encoding",
+ "log",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "lnk-thrussh-encoding"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b3c40451361c5691987b7eeeb0428f069fb07fa70367e9aa352704982f6f1a6"
+dependencies = [
+ "byteorder",
+ "lnk-cryptovec",
+ "thiserror",
 ]
 
 [[package]]
@@ -2444,6 +2472,7 @@ dependencies = [
  "librad",
  "link-async",
  "lnk-clib",
+ "lnk-thrussh-agent",
  "log",
  "minicbor",
  "nix",
@@ -2452,7 +2481,6 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "thiserror",
- "thrussh-agent",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2993,16 +3021,18 @@ dependencies = [
 [[package]]
 name = "radicle-keystore"
 version = "0.1.1"
-source = "git+https://github.com/radicle-dev/radicle-keystore?rev=b8a07286bad43a3d4b5f9136b7ef592dfa0fc4ad#b8a07286bad43a3d4b5f9136b7ef592dfa0fc4ad"
+source = "git+https://github.com/radicle-dev/radicle-keystore?rev=f9e5074934ca06299a95df5b82c73102444f0c57#f9e5074934ca06299a95df5b82c73102444f0c57"
 dependencies = [
  "async-trait",
  "byteorder",
  "chacha20poly1305",
- "cryptovec",
  "ed25519-zebra",
  "futures",
  "generic-array",
  "lazy_static",
+ "lnk-cryptovec",
+ "lnk-thrussh-agent",
+ "lnk-thrussh-encoding",
  "rand 0.8.5",
  "rpassword",
  "scrypt",
@@ -3010,8 +3040,6 @@ dependencies = [
  "serde",
  "serde_cbor",
  "thiserror",
- "thrussh-agent",
- "thrussh-encoding",
 ]
 
 [[package]]
@@ -3624,32 +3652,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "thrussh-agent"
-version = "0.1.0"
-source = "git+https://github.com/FintanH/thrussh.git?branch=generic-agent#fb6e2a525e0809e3b1c759261035710f4f6cfdc0"
-dependencies = [
- "async-trait",
- "byteorder",
- "cryptovec",
- "data-encoding",
- "futures",
- "log",
- "thiserror",
- "thrussh-encoding",
- "tokio",
-]
-
-[[package]]
-name = "thrussh-encoding"
-version = "0.1.0"
-source = "git+https://github.com/FintanH/thrussh.git?branch=generic-agent#fb6e2a525e0809e3b1c759261035710f4f6cfdc0"
-dependencies = [
- "byteorder",
- "cryptovec",
- "thiserror",
 ]
 
 [[package]]
