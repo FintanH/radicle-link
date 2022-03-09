@@ -40,6 +40,7 @@ pub mod gossip;
 pub mod interrogation;
 pub mod io;
 pub mod membership;
+pub mod request_pull;
 
 mod info;
 pub use info::{Capability, PartialPeerInfo, PeerAdvertisement, PeerInfo};
@@ -173,7 +174,14 @@ where
         Pcg64Mcg::new(rand::random()),
         config.membership,
     );
-    let gossip = broadcast::State::new(Storage::new(storage, config.rate_limits.storage), ());
+    let gossip = broadcast::State::new(
+        Storage::new(storage.clone(), config.rate_limits.storage.clone()),
+        (),
+    );
+    let request_pull = request_pull::State::allow_all(
+        Storage::new(storage, config.rate_limits.storage),
+        config.paths.clone(),
+    );
     let limits = RateLimits {
         membership: Arc::new(RateLimiter::keyed(
             config.rate_limits.membership,
@@ -186,6 +194,7 @@ where
         endpoint,
         membership,
         gossip,
+        request_pull,
         phone: phone.clone(),
         config: StateConfig {
             paths: Arc::new(config.paths),

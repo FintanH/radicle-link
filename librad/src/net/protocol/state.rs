@@ -15,8 +15,8 @@ use super::{
     cache,
     event,
     gossip,
-    io,
     membership,
+    request_pull,
     tick,
     Endpoint,
     ProtocolStorage,
@@ -44,6 +44,8 @@ pub(super) struct State<S> {
     pub endpoint: Endpoint,
     pub membership: membership::Hpv<Pcg64Mcg, SocketAddr>,
     pub gossip: broadcast::State<Storage<S>, ()>,
+    // TODO(finto): Parameterise Auth
+    pub request_pull: request_pull::State<Storage<S>, request_pull::AllowAll>,
     pub phone: TinCans,
     pub config: StateConfig,
     pub caches: cache::Caches,
@@ -77,10 +79,16 @@ where
     }
 
     /// Get or establish a connection
+    ///
+    /// Note: this function cannot be used in any of the
+    /// `net::protocol::recv::*` modules, since `net::protocol::io::streams`
+    /// relies on those modules and cycle will be created.
     pub async fn connection<I>(&self, to: PeerId, addr_hints: I) -> Option<quic::Connection>
     where
         I: IntoIterator<Item = SocketAddr> + 'static,
     {
+        use super::io;
+
         match self.endpoint.get_connection(to) {
             Some(conn) => Some(conn),
             None => io::connect(&self.endpoint, to, addr_hints)

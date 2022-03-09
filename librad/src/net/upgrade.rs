@@ -48,6 +48,9 @@ pub struct Membership;
 #[derive(Debug)]
 pub struct Interrogation;
 
+#[derive(Debug)]
+pub struct RequestPull;
+
 /// Signal the (sub-) protocol about to be sent over a given QUIC stream.
 ///
 /// This is only valid as the first message sent by the initiator of a fresh
@@ -70,6 +73,11 @@ pub enum UpgradeRequest {
     Git = 1,
     Membership = 2,
     Interrogation = 3,
+    /// `RequestPull` is a temporary stream and shall be deprecated in the
+    /// future, see [RFC 702][rfc].
+    ///
+    /// [rfc]: https://github.com/radicle-dev/radicle-link/blob/master/docs%2Frfc%2F0702-request-pull.adoc
+    RequestPull = 200,
 }
 
 impl From<Gossip> for UpgradeRequest {
@@ -96,6 +104,12 @@ impl From<Interrogation> for UpgradeRequest {
     }
 }
 
+impl From<RequestPull> for UpgradeRequest {
+    fn from(_interrogation: RequestPull) -> Self {
+        UpgradeRequest::RequestPull
+    }
+}
+
 impl minicbor::Encode for UpgradeRequest {
     fn encode<W: minicbor::encode::Write>(
         &self,
@@ -118,6 +132,7 @@ impl<'de> minicbor::Decode<'de> for UpgradeRequest {
                 1 => Ok(Self::Git),
                 2 => Ok(Self::Membership),
                 3 => Ok(Self::Interrogation),
+                200 => Ok(Self::RequestPull),
                 n => Err(minicbor::decode::Error::UnknownVariant(n as u32)),
             },
             n => Err(minicbor::decode::Error::UnknownVariant(n as u32)),
@@ -235,6 +250,7 @@ pub enum SomeUpgraded<S> {
     Git(Upgraded<Git, S>),
     Membership(Upgraded<Membership, S>),
     Interrogation(Upgraded<Interrogation, S>),
+    RequestPull(Upgraded<RequestPull, S>),
 }
 
 impl<S> SomeUpgraded<S> {
@@ -247,6 +263,7 @@ impl<S> SomeUpgraded<S> {
             Self::Git(up) => SomeUpgraded::Git(up.map(f)),
             Self::Membership(up) => SomeUpgraded::Membership(up.map(f)),
             Self::Interrogation(up) => SomeUpgraded::Interrogation(up.map(f)),
+            Self::RequestPull(up) => SomeUpgraded::RequestPull(up.map(f)),
         }
     }
 }
@@ -295,6 +312,7 @@ where
                 UpgradeRequest::Interrogation => {
                     SomeUpgraded::Interrogation(Upgraded::new(incoming))
                 },
+                UpgradeRequest::RequestPull => SomeUpgraded::RequestPull(Upgraded::new(incoming)),
             };
 
             Ok(upgrade)

@@ -92,6 +92,7 @@ mod incoming {
             Ok(Gossip(up)) => recv::gossip(state, up).await,
             Ok(Membership(up)) => recv::membership(state, up).await,
             Ok(Interrogation(up)) => recv::interrogation(state, up).await,
+            Ok(RequestPull(up)) => recv::request_pull(state, up).await,
         }
     }
 
@@ -109,6 +110,7 @@ mod incoming {
 
             Ok(Git(up)) => deny_uni(up.into_stream(), "git"),
             Ok(Interrogation(up)) => deny_uni(up.into_stream(), "interrogation"),
+            Ok(RequestPull(up)) => deny_uni(up.into_stream(), "request-pull"),
 
             Ok(Gossip(up)) => recv::gossip(state, up).await,
             Ok(Membership(up)) => recv::membership(state, up).await,
