@@ -10,7 +10,17 @@ use futures::{
     stream::{FuturesOrdered, StreamExt as _},
 };
 
-use super::{error, gossip, io, membership, PeerInfo, ProtocolStorage, State};
+use super::{
+    error,
+    gossip,
+    io,
+    membership,
+    request_pull,
+    PeerInfo,
+    ProtocolStorage,
+    RequestPullAuth,
+    State,
+};
 use crate::PeerId;
 
 #[derive(Debug)]
@@ -36,9 +46,10 @@ pub(super) enum Tock<A, P> {
 }
 
 #[tracing::instrument(level = "debug", skip(state))]
-pub(super) async fn tock<S>(state: State<S>, tock: Tock<SocketAddr, gossip::Payload>)
+pub(super) async fn tock<S, A>(state: State<S, A>, tock: Tock<SocketAddr, gossip::Payload>)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     let mut mcfly = FuturesOrdered::new();
     mcfly.push(one_tock(state.clone(), tock));
@@ -70,12 +81,13 @@ where
     }
 }
 
-fn one_tock<S>(
-    state: State<S>,
+fn one_tock<S, A>(
+    state: State<S, A>,
     tock: Tock<SocketAddr, gossip::Payload>,
 ) -> BoxFuture<'static, Result<Vec<membership::Tick<SocketAddr>>, error::Tock<SocketAddr>>>
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: request_pull::Auth + Clone + Send + Sync + 'static,
 {
     use Tock::*;
 
@@ -136,13 +148,14 @@ where
     .boxed()
 }
 
-async fn try_connect_and_send<S>(
-    state: &State<S>,
+async fn try_connect_and_send<S, A>(
+    state: &State<S, A>,
     to: &PeerInfo<SocketAddr>,
     message: io::Rpc<SocketAddr, gossip::Payload>,
 ) -> Result<(), error::BestEffortSend<SocketAddr>>
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     let conn = state
         .connection(to.peer_id, to.addrs().copied().collect::<Vec<_>>())

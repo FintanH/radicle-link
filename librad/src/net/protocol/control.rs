@@ -7,15 +7,27 @@ use std::{iter, net::SocketAddr};
 
 use futures::stream::{self, StreamExt as _};
 
-use super::{broadcast, error, event, gossip, io, tick, PeerInfo, ProtocolStorage, State};
+use super::{
+    broadcast,
+    error,
+    event,
+    gossip,
+    io,
+    tick,
+    PeerInfo,
+    ProtocolStorage,
+    RequestPullAuth,
+    State,
+};
 use crate::PeerId;
 
-pub(super) async fn gossip<S>(
-    state: &State<S>,
+pub(super) async fn gossip<S, A>(
+    state: &State<S, A>,
     evt: event::downstream::Gossip,
     exclude: Option<PeerId>,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     use event::downstream::Gossip;
 
@@ -43,7 +55,7 @@ pub(super) async fn gossip<S>(
     .await
 }
 
-pub(super) fn info<S>(state: &State<S>, evt: event::downstream::Info)
+pub(super) fn info<S, A>(state: &State<S, A>, evt: event::downstream::Info)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
 {
@@ -87,8 +99,8 @@ where
     }
 }
 
-pub(super) async fn interrogation<S>(
-    state: State<S>,
+pub(super) async fn interrogation<S, A>(
+    state: State<S, A>,
     event::downstream::Interrogation {
         peer: (peer, addr_hints),
         request,
@@ -96,6 +108,7 @@ pub(super) async fn interrogation<S>(
     }: event::downstream::Interrogation,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     let chan = reply.lock().take();
     if let Some(tx) = chan {
@@ -110,8 +123,8 @@ pub(super) async fn interrogation<S>(
     }
 }
 
-pub(super) async fn request_pull<S>(
-    state: State<S>,
+pub(super) async fn request_pull<S, A>(
+    state: State<S, A>,
     event::downstream::RequestPull {
         peer: (peer, addr_hints),
         request,
@@ -119,6 +132,7 @@ pub(super) async fn request_pull<S>(
     }: event::downstream::RequestPull,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     let chan = reply.lock().take();
     if let Some(tx) = chan {
@@ -142,14 +156,15 @@ pub(super) async fn request_pull<S>(
     }
 }
 
-pub(super) async fn connect<S>(
-    state: &State<S>,
+pub(super) async fn connect<S, A>(
+    state: &State<S, A>,
     event::downstream::Connect {
         peer: (peer, addr_hints),
         reply,
     }: event::downstream::Connect,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     let chan = reply.lock().take();
     if let Some(tx) = chan {

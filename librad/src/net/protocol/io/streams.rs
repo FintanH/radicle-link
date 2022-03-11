@@ -11,7 +11,7 @@ use futures::stream::{Stream, StreamExt as _};
 use super::recv;
 use crate::net::{
     connection::{CloseReason, RemoteAddr as _, RemotePeer},
-    protocol::{gossip, ProtocolStorage, State},
+    protocol::{gossip, ProtocolStorage, RequestPullAuth, State},
     quic,
     upgrade,
 };
@@ -28,11 +28,12 @@ use crate::net::{
         remote_addr = %streams.remote_addr()
     )
 )]
-pub(in crate::net::protocol) async fn incoming<S, I>(
-    state: State<S>,
+pub(in crate::net::protocol) async fn incoming<S, A, I>(
+    state: State<S, A>,
     streams: quic::IncomingStreams<I>,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
     I: Stream<Item = quic::Result<Either<quic::BidiStream, quic::RecvStream>>> + Unpin,
 {
     use Either::{Left, Right};
@@ -76,9 +77,10 @@ mod incoming {
 
     use crate::net::protocol::io::recv;
 
-    pub(super) async fn bidi<S>(state: State<S>, stream: quic::BidiStream)
+    pub(super) async fn bidi<S, A>(state: State<S, A>, stream: quic::BidiStream)
     where
         S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+        A: RequestPullAuth + Clone + 'static,
     {
         use upgrade::SomeUpgraded::*;
 
@@ -96,9 +98,10 @@ mod incoming {
         }
     }
 
-    pub(super) async fn uni<S>(state: State<S>, stream: quic::RecvStream)
+    pub(super) async fn uni<S, A>(state: State<S, A>, stream: quic::RecvStream)
     where
         S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+        A: RequestPullAuth + Clone + 'static,
     {
         use upgrade::SomeUpgraded::*;
 

@@ -170,6 +170,10 @@ impl Cfg<discovery::Static, BoxedSigner> {
                     network: args.protocol.network.clone(),
                     replication: Default::default(),
                     rate_limits: Default::default(),
+                    request_pull: net::protocol::request_pull::Config {
+                        peers: args.request_pull_auth.peers.clone().into_iter().collect(),
+                        urns: args.request_pull_auth.urns.clone().into_iter().collect(),
+                    },
                 },
                 storage: Default::default(),
             },

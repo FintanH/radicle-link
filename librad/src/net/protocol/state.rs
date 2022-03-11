@@ -20,6 +20,7 @@ use super::{
     tick,
     Endpoint,
     ProtocolStorage,
+    RequestPullAuth,
     TinCans,
 };
 use crate::{
@@ -39,13 +40,12 @@ pub(super) struct StateConfig {
 ///
 /// You know, like `ReaderT (State s) IO`.
 #[derive(Clone)]
-pub(super) struct State<S> {
+pub(super) struct State<S, A> {
     pub local_id: PeerId,
     pub endpoint: Endpoint,
     pub membership: membership::Hpv<Pcg64Mcg, SocketAddr>,
     pub gossip: broadcast::State<Storage<S>, ()>,
-    // TODO(finto): Parameterise Auth
-    pub request_pull: request_pull::State<Storage<S>, request_pull::AllowAll>,
+    pub request_pull: request_pull::State<Storage<S>, A>,
     pub phone: TinCans,
     pub config: StateConfig,
     pub caches: cache::Caches,
@@ -53,7 +53,7 @@ pub(super) struct State<S> {
     pub limits: RateLimits,
 }
 
-impl<S> State<S> {
+impl<S, A> State<S, A> {
     pub fn emit<I, E>(&self, evs: I)
     where
         I: IntoIterator<Item = E>,
@@ -65,9 +65,10 @@ impl<S> State<S> {
     }
 }
 
-impl<S> State<S>
+impl<S, A> State<S, A>
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
 {
     pub async fn tick<I>(&self, tocks: I)
     where
@@ -110,9 +111,10 @@ where
 
 #[cfg(not(feature = "replication-v3"))]
 #[async_trait]
-impl<S> crate::git::p2p::transport::GitStreamFactory for State<S>
+impl<S, A> crate::git::p2p::transport::GitStreamFactory for State<S, A>
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: request_pull::Auth + Clone + Send + Sync + 'static,
 {
     async fn open_stream(
         &self,

@@ -17,14 +17,16 @@ use super::{
     PeerInfo,
     ProtocolStorage,
     RecvError,
+    RequestPullAuth,
     State,
 };
 use crate::PeerId;
 
 #[tracing::instrument(skip(state, disco))]
-pub(super) async fn disco<S, D>(state: State<S>, disco: D)
+pub(super) async fn disco<S, A, D>(state: State<S, A>, disco: D)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
     D: futures::Stream<Item = (PeerId, Vec<SocketAddr>)>,
 {
     disco
@@ -36,9 +38,10 @@ where
 }
 
 #[tracing::instrument(skip(state, tasks))]
-pub(super) async fn periodic<S, P>(state: State<S>, tasks: P)
+pub(super) async fn periodic<S, A, P>(state: State<S, A>, tasks: P)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
     P: futures::Stream<Item = membership::Periodic<SocketAddr>>,
 {
     tasks
@@ -110,9 +113,10 @@ where
 }
 
 #[tracing::instrument(skip(state, rx))]
-pub(super) async fn ground_control<S, E>(state: State<S>, rx: E)
+pub(super) async fn ground_control<S, A, E>(state: State<S, A>, rx: E)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: RequestPullAuth + Clone + 'static,
     E: futures::Stream<Item = Result<event::Downstream, RecvError>>,
 {
     use event::Downstream;

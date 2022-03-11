@@ -17,11 +17,11 @@ use futures_codec::FramedRead;
 use thiserror::Error;
 
 use crate::{
-    git::{storage, Urn},
+    git::Urn,
     net::{
         connection::{Duplex, RemotePeer as _},
         peer::event::downstream::Gossip,
-        protocol::{self, broadcast, control, gossip, io::codec, request_pull, State},
+        protocol::{self, control, gossip, io::codec, request_pull, State},
         quic,
         upgrade::{self, Upgraded},
     },
@@ -34,16 +34,12 @@ enum Error {
     Cbor(#[from] minicbor::encode::Error<std::io::Error>),
 }
 
-pub(in crate::net::protocol) async fn request_pull<S>(
-    state: State<S>,
+pub(in crate::net::protocol) async fn request_pull<S, A>(
+    state: State<S, A>,
     stream: Upgraded<upgrade::RequestPull, quic::BidiStream>,
 ) where
-    S: broadcast::LocalStorage<SocketAddr>
-        + protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload>
-        + storage::Pooled<storage::Storage>
-        + Send
-        + Sync
-        + 'static,
+    S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: protocol::RequestPullAuth + Clone + 'static,
 {
     let remote_peer = stream.remote_peer_id();
 
@@ -136,20 +132,16 @@ where
     }
 }
 
-async fn handle_request<'a, S>(
-    state: State<S>,
+async fn handle_request<'a, S, A>(
+    state: State<S, A>,
     peer: PeerId,
     request_pull::Request { urn }: request_pull::Request,
     replicate: request_pull::SomeReplicate,
     report: &mut Reporter<'a, quic::BidiStream>,
 ) -> request_pull::Response
 where
-    S: broadcast::LocalStorage<SocketAddr>
-        + protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload>
-        + storage::Pooled<storage::Storage>
-        + Send
-        + Sync
-        + 'static,
+    S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: protocol::RequestPullAuth + Clone + 'static,
 {
     report
         .progress(request_pull::progress::authorizing(&peer, &urn))
@@ -189,17 +181,14 @@ where
     }
 }
 
-async fn gossip<S>(
-    state: &State<S>,
+async fn gossip<S, A>(
+    state: &State<S, A>,
     exclude: PeerId,
     urn: &Urn,
     revs: impl Iterator<Item = git_ext::Oid>,
 ) where
-    S: broadcast::LocalStorage<SocketAddr>
-        + protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload>
-        + Send
-        + Sync
-        + 'static,
+    S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
+    A: protocol::RequestPullAuth + Clone + 'static,
 {
     future::join_all(revs.map(|rev| {
         control::gossip(

@@ -25,7 +25,7 @@ use librad::{
         connection::{LocalAddr, LocalPeer},
         discovery::{self, Discovery as _},
         peer::{self, Peer},
-        protocol,
+        protocol::{self, request_pull::auth},
         Network,
     },
     paths::Paths,
@@ -38,7 +38,7 @@ static LOCALHOST_ANY: Lazy<SocketAddr> =
 
 pub struct BoundTestPeer {
     peer: Peer<SecretKey>,
-    bound: protocol::Bound<peer::PeerStorage>,
+    bound: protocol::Bound<peer::PeerStorage, auth::ProtocolAuth>,
     disco: discovery::Static,
     tmp: TempDir,
 }
@@ -119,6 +119,7 @@ where
         network: Network::Custom(b"localtestnet".as_ref().into()),
         replication: Default::default(),
         rate_limits: Default::default(),
+        request_pull: Default::default(),
     };
     let disco = seeds.into_iter().collect::<discovery::Static>();
     let peer = Peer::new(peer::Config {

@@ -21,6 +21,7 @@ use crate::{
             io::{codec, peer_advertisement},
             membership,
             ProtocolStorage,
+            RequestPullAuth,
             State,
         },
         upgrade::{self, Upgraded},
@@ -28,11 +29,12 @@ use crate::{
     PeerId,
 };
 
-pub(in crate::net::protocol) async fn gossip<S, T>(
-    state: State<S>,
+pub(in crate::net::protocol) async fn gossip<S, A, T>(
+    state: State<S, A>,
     stream: Upgraded<upgrade::Gossip, T>,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: RequestPullAuth + Clone + 'static,
     T: RemotePeer + AsyncRead + Unpin,
 {
     let remote_id = stream.remote_peer_id();

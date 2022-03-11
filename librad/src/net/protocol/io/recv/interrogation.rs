@@ -41,8 +41,8 @@ lazy_static! {
         encode(&Response::Error(interrogation::Error::Internal)).unwrap();
 }
 
-pub(in crate::net::protocol) async fn interrogation<S, T>(
-    state: State<S>,
+pub(in crate::net::protocol) async fn interrogation<S, A, T>(
+    state: State<S, A>,
     stream: Upgraded<upgrade::Interrogation, T>,
 ) where
     S: storage::Pooled<storage::Storage> + Send + 'static,

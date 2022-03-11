@@ -24,6 +24,7 @@ pub use crate::net::protocol::{
         downstream::{MembershipInfo, Stats},
         Upstream as ProtocolEvent,
     },
+    request_pull::auth,
     Connected,
     Interrogation,
     PeerInfo,
@@ -352,13 +353,16 @@ where
             .await
     }
 
-    pub async fn bind(&self) -> Result<protocol::Bound<PeerStorage>, protocol::error::Bootstrap> {
+    pub async fn bind(
+        &self,
+    ) -> Result<protocol::Bound<PeerStorage, auth::ProtocolAuth>, protocol::error::Bootstrap> {
         protocol::bind(
             self.spawner.clone(),
             self.phone.clone(),
             self.config.protocol.clone(),
             self.config.signer.clone(),
             self.peer_store.clone(),
+            auth::ProtocolAuth::from(self.config.protocol.request_pull.clone()),
             self.caches.clone(),
         )
         .await

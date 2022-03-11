@@ -69,6 +69,7 @@ pub struct Config {
     pub network: Network,
     pub replication: replication::Config,
     pub rate_limits: Quota,
+    pub request_pull: request_pull::Config,
     // TODO: transport, ...
 }
 
@@ -93,14 +94,14 @@ pub mod config {
 ///
 /// Created by [`crate::net::peer::Peer::bind`]. Call [`Bound::accept`] to start
 /// accepting connections from peers.
-pub struct Bound<S> {
+pub struct Bound<S, A> {
     phone: TinCans,
-    state: State<S>,
+    state: State<S, A>,
     incoming: quic::IncomingConnections<'static>,
     periodic: BoxStream<'static, membership::Periodic<SocketAddr>>,
 }
 
-impl<S> Bound<S> {
+impl<S, A> Bound<S, A> {
     pub fn peer_id(&self) -> PeerId {
         self.state.local_id
     }
@@ -128,19 +129,20 @@ impl<S> Bound<S> {
     )
     where
         S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+        A: RequestPullAuth + Clone + 'static,
         D: futures::Stream<Item = (PeerId, Vec<SocketAddr>)> + Send + 'static,
     {
         accept(self, disco)
     }
 }
 
-impl<S> LocalPeer for Bound<S> {
+impl<S, A> LocalPeer for Bound<S, A> {
     fn local_peer_id(&self) -> PeerId {
         self.peer_id()
     }
 }
 
-impl<S> LocalAddr for Bound<S> {
+impl<S, A> LocalAddr for Bound<S, A> {
     type Addr = SocketAddr;
 
     fn listen_addrs(&self) -> Vec<Self::Addr> {
@@ -148,17 +150,19 @@ impl<S> LocalAddr for Bound<S> {
     }
 }
 
-pub async fn bind<Sign, Store>(
+pub async fn bind<Sign, Store, Auth>(
     spawner: Arc<Spawner>,
     phone: TinCans,
     config: Config,
     signer: Sign,
     storage: Store,
+    auth: Auth,
     caches: cache::Caches,
-) -> Result<Bound<Store>, error::Bootstrap>
+) -> Result<Bound<Store, Auth>, error::Bootstrap>
 where
     Sign: Signer + Clone + Send + Sync + 'static,
     Store: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    Auth: RequestPullAuth + Clone + 'static,
 {
     let local_id = PeerId::from_signer(&signer);
     let quic::BoundEndpoint { endpoint, incoming } = quic::Endpoint::bind(
@@ -178,9 +182,10 @@ where
         Storage::new(storage.clone(), config.rate_limits.storage.clone()),
         (),
     );
-    let request_pull = request_pull::State::allow_all(
+    let request_pull = request_pull::State::new(
         Storage::new(storage, config.rate_limits.storage),
         config.paths.clone(),
+        auth,
     );
     let limits = RateLimits {
         membership: Arc::new(RateLimiter::keyed(
@@ -216,13 +221,13 @@ where
     skip(phone, state, incoming, periodic, disco),
     fields(peer_id = %state.local_id),
 )]
-pub fn accept<Store, Disco>(
+pub fn accept<Store, Auth, Disco>(
     Bound {
         phone,
         state,
         incoming,
         periodic,
-    }: Bound<Store>,
+    }: Bound<Store, Auth>,
     disco: Disco,
 ) -> (
     impl FnOnce(),
@@ -230,6 +235,7 @@ pub fn accept<Store, Disco>(
 )
 where
     Store: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    Auth: RequestPullAuth + Clone + 'static,
     Disco: futures::Stream<Item = (PeerId, Vec<SocketAddr>)> + Send + 'static,
 {
     #[cfg(not(feature = "replication-v3"))]
@@ -281,6 +287,9 @@ impl<A, T> ProtocolStorage<A> for T where
     T: broadcast::LocalStorage<A> + storage::Pooled<storage::Storage> + Send + Sync
 {
 }
+
+pub trait RequestPullAuth: request_pull::Auth + Send + Sync {}
+impl<T> RequestPullAuth for T where T: request_pull::Auth + Send + Sync {}
 
 impl<R, A> broadcast::Membership for membership::Hpv<R, A>
 where

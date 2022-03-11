@@ -1,6 +1,8 @@
 // Copyright © 2022 The Radicle Link Contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::collections::BTreeSet;
+
 use link_async::Spawner;
 use thiserror::Error;
 
@@ -11,6 +13,7 @@ use crate::{
 };
 
 use crate::{
+    data::NonEmptyOrderedSet,
     git::{
         storage::{self},
         Urn,
@@ -20,8 +23,30 @@ use crate::{
     PeerId,
 };
 
+pub mod auth;
+pub use auth::Auth;
 mod rpc;
 pub use rpc::{Error, Progress, Ref, Request, Response, Success};
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Config {
+    pub peers: BTreeSet<PeerId>,
+    pub urns: BTreeSet<Urn>,
+}
+
+impl From<Config> for auth::ProtocolAuth {
+    fn from(Config { peers, urns }: Config) -> Self {
+        match (
+            NonEmptyOrderedSet::from_maybe_empty(peers),
+            NonEmptyOrderedSet::from_maybe_empty(urns),
+        ) {
+            (None, None) => Self::AllowAll(auth::AllowAll),
+            (Some(peers), None) => Self::Configured(auth::Configured::Peers(peers)),
+            (None, Some(urns)) => Self::Configured(auth::Configured::Urns(urns)),
+            (Some(peers), Some(urns)) => Self::Configured(auth::Configured::Both { peers, urns }),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct State<S, A> {
@@ -30,19 +55,6 @@ pub struct State<S, A> {
     #[allow(dead_code)]
     paths: Paths,
     authorization: A,
-}
-
-pub trait Auth {
-    fn is_authorized(&self, peer: &PeerId, urn: &Urn) -> bool;
-}
-
-#[derive(Clone)]
-pub struct AllowAll;
-
-impl Auth for AllowAll {
-    fn is_authorized(&self, _: &PeerId, _: &Urn) -> bool {
-        true
-    }
 }
 
 impl<S, A: Auth> State<S, A> {
@@ -56,16 +68,6 @@ impl<S, A: Auth> State<S, A> {
 
     pub fn is_authorized(&self, peer: &PeerId, urn: &Urn) -> bool {
         self.authorization.is_authorized(peer, urn)
-    }
-}
-
-impl<S> State<S, AllowAll> {
-    pub fn allow_all(storage: S, paths: Paths) -> Self {
-        Self {
-            storage,
-            paths,
-            authorization: AllowAll,
-        }
     }
 }
 

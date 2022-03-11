@@ -71,6 +71,9 @@ pub struct Args {
     #[clap(flatten)]
     pub tracking: TrackingArgs,
 
+    #[clap(flatten)]
+    pub request_pull_auth: RequestPullArgs,
+
     /// The number of milliseconds to wait after losing all connections before
     /// shutting down the node. If not specified the node will never
     /// shutdown.
@@ -313,6 +316,26 @@ fn parse_protocol_network(src: &str) -> Result<Network, String> {
         custom if !src.is_empty() => Ok(Network::from_str(custom)?),
         _ => Err("custom network can't be empty".to_string()),
     }
+}
+
+#[derive(Debug, Default, Eq, PartialEq, Parser)]
+pub struct RequestPullArgs {
+    /// Authorize a specific peer for request-pull calls.
+    ///
+    /// If `--auth-urn` is specified in conjunction with `--auth-peer` then the
+    /// request-pull MUST be for the given urn and peer.
+    ///
+    /// If neither are specified then all peers and urns are authorized.
+    #[clap(long = "auth-peer", name = "auth-peer")]
+    pub peers: Vec<PeerId>,
+    /// Authorize a specific urn for request-pull calls.
+    ///
+    /// If `--auth-peer` is specified in conjunction with `--auth-urn` then the
+    /// request-pull MUST be for the given urn and peer.
+    ///
+    /// If neither are specified then all peers and urns are authorized.
+    #[clap(long = "auth-urn", name = "auth-urn")]
+    pub urns: Vec<Urn>,
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Parser)]

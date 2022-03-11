@@ -111,6 +111,7 @@ async fn main() {
                 network: opts.network,
                 replication: Default::default(),
                 rate_limits: Default::default(),
+                request_pull: Default::default(),
             },
             storage: Default::default(),
         })

@@ -18,6 +18,7 @@ use crate::{
             gossip,
             io::{codec, peer_advertisement},
             membership,
+            request_pull,
             tick,
             ProtocolStorage,
             State,
@@ -27,11 +28,12 @@ use crate::{
     PeerId,
 };
 
-pub(in crate::net::protocol) async fn membership<S, T>(
-    state: State<S>,
+pub(in crate::net::protocol) async fn membership<S, A, T>(
+    state: State<S, A>,
     stream: Upgraded<upgrade::Membership, T>,
 ) where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: request_pull::Auth + Clone + Send + Sync + 'static,
     T: RemoteInfo<Addr = SocketAddr> + AsyncRead + Unpin,
 {
     // A `PeerInfo` may contain ~516 bytes worth of `SocketAddr`s (well, ipv6).
@@ -99,9 +101,10 @@ pub(in crate::net::protocol) async fn membership<S, T>(
     }
 }
 
-pub(in crate::net::protocol) async fn connection_lost<S>(state: State<S>, remote_id: PeerId)
+pub(in crate::net::protocol) async fn connection_lost<S, A>(state: State<S, A>, remote_id: PeerId)
 where
     S: ProtocolStorage<SocketAddr, Update = gossip::Payload> + Clone + 'static,
+    A: request_pull::Auth + Clone + Send + Sync + 'static,
 {
     let membership::TnT { trans, ticks } = state.membership.connection_lost(remote_id);
     state.emit(trans);
