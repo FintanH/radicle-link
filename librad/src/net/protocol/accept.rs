@@ -133,6 +133,7 @@ where
                 Downstream::Gossip(x) => control::gossip(&state, x, None).await,
                 Downstream::Info(x) => control::info(&state, x),
                 Downstream::Interrogation(x) => control::interrogation(state.clone(), x).await,
+                Downstream::RequestPull(x) => control::request_pull(state.clone(), x).await,
                 Downstream::Connect(x) => control::connect(&state, x).await,
             },
         }

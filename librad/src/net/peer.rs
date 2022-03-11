@@ -27,6 +27,7 @@ pub use crate::net::protocol::{
     Connected,
     Interrogation,
     PeerInfo,
+    RequestPull,
 };
 
 pub mod error;
@@ -237,6 +238,14 @@ where
 
     pub fn interrogate(&self, peer: impl Into<(PeerId, Vec<SocketAddr>)>) -> Interrogation {
         self.phone.interrogate(peer)
+    }
+
+    pub async fn request_pull(
+        &self,
+        peer: impl Into<(PeerId, Vec<SocketAddr>)>,
+        urn: Urn,
+    ) -> RequestPull {
+        self.phone.request_pull(peer, urn).await
     }
 
     /// Initiate replication of `urn` from the given peer.

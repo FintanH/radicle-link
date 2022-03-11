@@ -52,7 +52,7 @@ mod tick;
 
 mod tincans;
 pub(super) use tincans::TinCans;
-pub use tincans::{Connected, Interrogation, RecvError};
+pub use tincans::{Connected, Interrogation, RecvError, RequestPull};
 
 mod state;
 pub use state::Quota;
