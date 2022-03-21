@@ -76,6 +76,8 @@ pub struct Config<Guard> {
 pub mod config {
     use std::time::Duration;
 
+    use crate::{git::Urn, net::protocol::request_pull::Guard, PeerId};
+
     #[derive(Clone, Copy, Debug)]
     pub struct Fetch {
         pub fetch_slot_wait_timeout: Duration,
@@ -86,6 +88,24 @@ pub mod config {
             Self {
                 fetch_slot_wait_timeout: Duration::from_secs(20),
             }
+        }
+    }
+
+    /// A request-pull [`Guard`] that will always return the [`Denied`] error.
+    #[derive(Clone, Copy, Debug)]
+    pub struct DenyAll;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("request-pull denied for `{0}`")]
+    pub struct Denied(Urn);
+
+    impl Guard for DenyAll {
+        type Error = Denied;
+
+        type Output = std::convert::Infallible;
+
+        fn guard(&self, _: &PeerId, urn: &Urn) -> Result<Self::Output, Self::Error> {
+            Err(Denied(urn.clone()))
         }
     }
 }
