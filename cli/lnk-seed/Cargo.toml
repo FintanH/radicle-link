@@ -1,0 +1,22 @@
+[package]
+name = "lnk-seed"
+version = "0.1.0"
+authors = [ "Fintan Halpenny <fintan.halpenny@gmail.com>", "xla <self@xla.is>" ]
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[lib]
+doctest = false
+test = false
+
+[dependencies]
+thiserror = "1.0"
+
+[dependencies.librad]
+path    = "../../librad"
+version = "0.1.0"
+
+[dependencies.tokio]
+version = "1.13"
+default-features = false
+features = [ "fs", "io-std", "macros", "process", "rt-multi-thread", "signal" ]

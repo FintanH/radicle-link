@@ -3,6 +3,9 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
+pub extern crate lnk_seed as seed;
+pub use seed::{Seed, Seeds};
+
 pub mod args;
 
 mod cfg;
@@ -13,7 +16,5 @@ mod metrics;
 pub mod node;
 mod protocol;
 pub mod request_pull;
-pub mod seed;
-pub use seed::{Seed, Seeds};
 mod signals;
 pub mod tracking;

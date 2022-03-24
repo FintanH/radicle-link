@@ -2168,6 +2168,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnk-seed"
+version = "0.1.0"
+dependencies = [
+ "librad",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "lnk-thrussh-agent"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2460,6 +2469,7 @@ dependencies = [
  "librad",
  "link-async",
  "lnk-clib",
+ "lnk-seed",
  "lnk-thrussh-agent",
  "log",
  "minicbor",

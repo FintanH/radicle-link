@@ -48,6 +48,10 @@ features = ["std", "derive"]
 path    = "../cli/lnk-clib"
 version = "0.1.0"
 
+[dependencies.lnk-seed]
+path    = "../cli/lnk-seed"
+version = "0.1.0"
+
 [dependencies.lnk-thrussh-agent]
 version  = "0.1.0"
 features = [ "tokio-agent" ]
