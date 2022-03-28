@@ -13,6 +13,7 @@ mod config;
 mod exec_str;
 mod git_subprocess;
 mod hooks;
+mod peerless;
 mod processes;
 mod server;
 mod service;
