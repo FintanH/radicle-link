@@ -5,6 +5,16 @@ use git2::transport::Service as GitService;
 #[derive(Clone, Copy)]
 pub(crate) struct Service(pub GitService);
 
+impl Service {
+    pub fn is_receive(&self) -> bool {
+        matches!(self.0, GitService::ReceivePack | GitService::ReceivePackLs)
+    }
+
+    pub fn is_upload(&self) -> bool {
+        matches!(self.0, GitService::UploadPack | GitService::UploadPackLs)
+    }
+}
+
 impl From<GitService> for Service {
     fn from(g: GitService) -> Self {
         Service(g)

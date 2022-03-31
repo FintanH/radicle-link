@@ -26,7 +26,7 @@ pub(crate) fn parse_exec_str(exec_str: &str) -> Result<(Service, Urn), ParseErro
         .captures_iter(exec_str)
         .next()
         .ok_or(ParseError::Format)?;
-    debug_assert!(cap.len() == 2);
+    debug_assert!(cap.len() == 3, "{:#?}", cap);
     let service_str: &str = &cap[1];
     let urn_str = &cap[2];
 

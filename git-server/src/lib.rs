@@ -2,11 +2,18 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use futures::{FutureExt, StreamExt};
-use librad::PeerId;
+use librad::{
+    crypto::{BoxedSignError, BoxedSigner},
+    net,
+    PeerId,
+};
+use lnk_clib::seed::{self, Seeds};
 use lnk_thrussh as thrussh;
 use lnk_thrussh_keys as thrussh_keys;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::mpsc};
 use tracing::instrument;
+
+use crate::peerless::Peerless;
 
 mod args;
 mod config;
@@ -28,6 +35,8 @@ pub enum RunError {
     CouldNotBind(std::io::Error),
     #[error("unable to load server key: {0}")]
     UnableToLoadKey(Box<dyn std::error::Error>),
+    #[error("unable to initialise peer")]
+    Peer(#[from] net::peer::error::Init),
     #[error("error loading socket activation environment variables: {0}")]
     SocketActivation(#[from] lnk_clib::socket_activation::Error),
     #[error(transparent)]
@@ -50,10 +59,11 @@ pub async fn main() {
     }
 }
 
-pub async fn run<S: librad::Signer + Clone>(
+pub async fn run<S: librad::Signer<Error = BoxedSignError> + Clone>(
     config: config::Config<S>,
     spawner: Arc<link_async::Spawner>,
 ) -> Result<(), RunError> {
+    tracing::info!(git=%config.paths.git_dir().display(), "starting git-server");
     // Load storage pool
     let storage_pool = Arc::new(librad::git::storage::Pool::new(
         librad::git::storage::pool::ReadWriteConfig::new(
@@ -65,6 +75,23 @@ pub async fn run<S: librad::Signer + Clone>(
     ));
 
     let peer_id = PeerId::from_signer(&config.signer);
+    let peerless = Peerless::new(
+        config.paths.clone(),
+        BoxedSigner::new(config.signer.clone()),
+    )?;
+    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let peer_task = spawner.spawn(peerless::routine(peerless.clone(), shutdown_rx));
+
+    let seeds = {
+        let path = config.paths.seeds_file();
+        tracing::info!(seed_file=%path.display(), "loading seeds");
+        let store = seed::store::FileStore::<String>::new(path)?;
+        let (seeds, failures) = Seeds::load(&store, None).await?;
+        for fail in &failures {
+            tracing::warn!("failed to load configured seed: {}", fail);
+        }
+        seeds
+    };
 
     // Create thrussh config from stored key or create a new one
     let server_key = create_or_load_key(peer_id)?;
@@ -80,11 +107,13 @@ pub async fn run<S: librad::Signer + Clone>(
     let hooks = if config.announce_on_push {
         hooks::Hooks::announce(
             spawner.clone(),
+            peerless,
             storage_pool.clone(),
             config.linkd_rpc_socket_path,
+            seeds,
         )
     } else {
-        hooks::Hooks::update_sigrefs(spawner.clone(), storage_pool.clone())
+        hooks::Hooks::update_sigrefs(spawner.clone(), peerless, storage_pool.clone(), seeds)
     };
     let sh = server::Server::new(spawner.clone(), peer_id, handle.clone(), hooks);
     let ssh_tasks = sh.serve(&socket, thrussh_config).await;
@@ -99,21 +128,26 @@ pub async fn run<S: librad::Signer + Clone>(
     // Wait for everything to finish
     let mut processes_fused = processes_task.fuse();
     let mut server_complete = server_complete.fuse();
+    let mut peer_task = peer_task.fuse();
     futures::select! {
         _ = server_complete => {
             tracing::info!("SSH server shutdown, shutting down subprocesses");
-            handle_shutdown(handle, server_complete, processes_fused).await;
+            shutdown_tx.send(()).await.ok();
+            handle_shutdown(handle, server_complete, processes_fused, peer_task).await;
         },
         _ = sigterm.recv().fuse() => {
             tracing::info!("received SIGTERM, attmempting graceful shutdown");
-            handle_shutdown(handle, server_complete, processes_fused).await;
+            shutdown_tx.send(()).await.ok();
+            handle_shutdown(handle, server_complete, processes_fused, peer_task).await;
         },
         _ = sigint.recv().fuse() => {
             tracing::info!("received SIGINT, attmempting graceful shutdown");
-            handle_shutdown(handle, server_complete, processes_fused).await;
+            shutdown_tx.send(()).await.ok();
+            handle_shutdown(handle, server_complete, processes_fused, peer_task).await;
         },
         p = processes_fused => {
             tracing::error!("subprocesses loop terminated whilst server running");
+            shutdown_tx.send(()).await.ok();
             match p {
                 Ok(Ok(())) => {
                     panic!("subprocesses loop terminated for no reason");
@@ -199,6 +233,7 @@ async fn handle_shutdown<I, R, F>(
     processes_fused: futures::future::Fuse<
         link_async::Task<Result<(), processes::ProcessRunError<server::ChannelAndSessionId>>>,
     >,
+    peer_task: futures::future::Fuse<link_async::Task<()>>,
 ) where
     F: futures::Future<Output = ()>,
     I: std::fmt::Debug,
@@ -212,6 +247,7 @@ async fn handle_shutdown<I, R, F>(
                 _ = server_complete.fuse() => {
                     tracing::error!("SSH server shutdown whilst waiting for processees to finish, exiting");
                 },
+                _ = peer_task.fuse() => {},
                 timeout_res = timeout => {
                     match timeout_res {
                         Ok(Ok(Ok(()))) => {},

@@ -32,6 +32,7 @@ features = ["vendored-libgit2"]
 
 [dependencies.librad]
 path = "../librad"
+features = ["replication-v3"]
 
 [dependencies.link-async]
 path = "../link-async"

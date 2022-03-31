@@ -79,6 +79,20 @@ async fn run_git_subprocess_inner<Replier: ProcessReply + Clone>(
     urn: Urn,
     hooks: Hooks,
 ) -> Result<(), Error<Replier::Error>> {
+    let mut progress_reporter = ReplierHookProgressReporter {
+        replier: out.clone(),
+    };
+    if service.is_upload() {
+        match hooks.pre_receive(&mut progress_reporter, urn.clone()).await {
+            Ok(()) => {},
+            Err(hooks::Error::Progress(err)) => {
+                tracing::error!(err=%err, "failed pre-receive hook");
+                return Ok(());
+            },
+            Err(_) => unreachable!(),
+        }
+    }
+
     let mut git = {
         let storage = pool.get().await.map_err(|e| {
             tracing::error!(err=?e, "error opening storage pool");
@@ -239,26 +253,45 @@ async fn run_git_subprocess_inner<Replier: ProcessReply + Clone>(
     }
 
     // Run hooks
-    if service.0 == GitService::ReceivePack {
-        let progress_reporter = ReplierHookProgressReporter {
-            replier: out.clone(),
-        };
-        if let Err(e) = hooks.post_receive(progress_reporter, urn).await {
-            match e {
-                hooks::Error::Progress(_) => {
-                    tracing::error!("client went away whilst executing post receive hook");
-                },
-                other => {
-                    tracing::error!(err=?other, "error executing post receive hook");
-                    out.stderr_data(
-                        format!("error executing post receive hook: {}\n", other).into_bytes(),
-                    )
-                    .await
-                    .map_err(Error::Reply)?;
-                },
+    match service.0 {
+        GitService::ReceivePack => {
+            // if let Err(e) = hooks
+            //     .post_receive(&mut progress_reporter, urn.clone())
+            //     .await
+            // {
+            //     match e {
+            //         hooks::Error::Progress(_) => {
+            //             tracing::error!("client went away whilst executing post receive
+            // hook");         },
+            //         other => {
+            //             tracing::error!(err=?other, "error executing post receive hook");
+            //             out.stderr_data(
+            //                 format!("error executing post receive hook: {}\n",
+            // other).into_bytes(),             )
+            //             .await
+            //             .map_err(Error::Reply)?;
+            //         },
+            //     }
+            // }
+            tracing::trace!("Running post-upload");
+            if let Err(e) = hooks.post_upload(&mut progress_reporter, urn).await {
+                match e {
+                    hooks::Error::Progress(_) => {
+                        tracing::error!("client went away whilst executing post upload hook");
+                    },
+                    other => {
+                        tracing::error!(err=?other, "error executing post upload hook");
+                        out.stderr_data(
+                            format!("error executing post upload hook: {}\n", other).into_bytes(),
+                        )
+                        .await
+                        .map_err(Error::Reply)?;
+                    },
+                }
             }
-        }
-    };
+        },
+        _ => { /* do nothing */ },
+    }
 
     out.exit_status(ExitStatus::from_raw(0))
         .await
@@ -278,11 +311,11 @@ where
 {
     type Error = E;
 
-    fn report(
-        &mut self,
-        progress: hooks::Progress,
-    ) -> futures::future::BoxFuture<Result<(), Self::Error>> {
-        let message = format!("{}\n", progress).into_bytes();
+    fn report<P>(&mut self, progress: P) -> futures::future::BoxFuture<Result<(), Self::Error>>
+    where
+        P: Into<hooks::Progress>,
+    {
+        let message = format!("{}\n", progress.into()).into_bytes();
         self.replier.stderr_data(message).boxed()
     }
 }
@@ -389,6 +422,7 @@ fn create_command(
     Ok(git)
 }
 
+#[tracing::instrument(skip(storage))]
 fn guard_has_urn<S>(storage: S, urn: &Urn) -> Result<(), CreateCommandError>
 where
     S: AsRef<librad::git::storage::ReadOnly>,
@@ -404,6 +438,7 @@ where
     }
 }
 
+#[tracing::instrument(skip(storage))]
 fn visible_remotes<S>(
     storage: S,
     urn: &Urn,

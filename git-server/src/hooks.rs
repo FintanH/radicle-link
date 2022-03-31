@@ -2,18 +2,27 @@ use std::{fmt, path::PathBuf, sync::Arc};
 
 use tracing::instrument;
 
-use librad::git::{
-    refs::{self, Refs},
-    storage,
-    Urn,
+use librad::{
+    crypto::BoxedSigner,
+    git::{
+        refs::{self, Refs},
+        storage,
+        Urn,
+    },
+    net::protocol::request_pull,
 };
 use link_async::Spawner;
 use linkd_lib::api::client::Reply;
+use lnk_clib::seed::Seeds;
+
+use crate::peerless::Peerless;
 
 #[derive(Clone)]
 pub(crate) struct Hooks {
     spawner: Arc<Spawner>,
+    peerless: Peerless<BoxedSigner>,
     pool: Arc<storage::Pool<storage::Storage>>,
+    seeds: Seeds,
     rpc_socket_path: Option<PathBuf>,
     post_receive: PostReceive,
 }
@@ -64,33 +73,42 @@ pub(crate) enum Error<E: std::error::Error + Send + 'static> {
 
 pub(crate) trait ProgressReporter {
     type Error;
-    fn report(&mut self, progress: Progress)
-        -> futures::future::BoxFuture<Result<(), Self::Error>>;
+    fn report<P>(&mut self, progress: P) -> futures::future::BoxFuture<Result<(), Self::Error>>
+    where
+        P: Into<Progress>;
 }
 
 impl Hooks {
     pub(crate) fn update_sigrefs(
         spawner: Arc<Spawner>,
+        peerless: Peerless<BoxedSigner>,
         pool: Arc<storage::Pool<storage::Storage>>,
+        seeds: Seeds,
     ) -> Hooks {
         Self {
             spawner,
+            peerless,
             pool,
             post_receive: PostReceive { announce: false },
             rpc_socket_path: None,
+            seeds,
         }
     }
 
     pub(crate) fn announce(
         spawner: Arc<Spawner>,
+        peerless: Peerless<BoxedSigner>,
         pool: Arc<storage::Pool<storage::Storage>>,
         rpc_socket_path: Option<PathBuf>,
+        seeds: Seeds,
     ) -> Hooks {
         Self {
             spawner,
+            peerless,
             pool,
             post_receive: PostReceive { announce: true },
             rpc_socket_path,
+            seeds,
         }
     }
 
@@ -99,13 +117,13 @@ impl Hooks {
         E: std::error::Error + Send + 'static,
         P: ProgressReporter<Error = E>,
     >(
-        self,
-        mut reporter: P,
+        &self,
+        reporter: &mut P,
         urn: Urn,
     ) -> Result<(), Error<E>> {
         // Update `rad/signed_refs`
         reporter
-            .report("updating signed refs".into())
+            .report("updating signed refs")
             .await
             .map_err(Error::Progress)?;
         let update_result = {
@@ -131,24 +149,22 @@ impl Hooks {
             refs::Updated::ConcurrentlyModified => {
                 tracing::warn!("attempted concurrent updates of signed refs");
                 reporter
-                    .report(
-                        "sigrefs race whilst updating signed refs, you may need to retry".into(),
-                    )
+                    .report("sigrefs race whilst updating signed refs, you may need to retry")
                     .await
                     .map_err(Error::Progress)?;
                 return Ok(());
             },
         };
         reporter
-            .report("signed refs updated".into())
+            .report("signed refs updated")
             .await
             .map_err(Error::Progress)?;
 
         if self.post_receive.announce {
             tracing::info!("running post receive announcement hook");
-            if let Some(rpc_socket_path) = self.rpc_socket_path {
+            if let Some(rpc_socket_path) = &self.rpc_socket_path {
                 reporter
-                    .report("announcing new refs".into())
+                    .report("announcing new refs")
                     .await
                     .map_err(Error::Progress)?;
                 tracing::trace!(?rpc_socket_path, "attempting to send announcement");
@@ -168,13 +184,13 @@ impl Hooks {
                             msg,
                         }) => {
                             tracing::trace!(?msg, "got progress messaage from linkd node");
-                            reporter.report(msg.into()).await.map_err(Error::Progress)?;
+                            reporter.report(msg).await.map_err(Error::Progress)?;
                             replies = next_replies;
                         },
                         Ok(Reply::Success { .. }) => {
                             tracing::trace!("got success from linkd node");
                             reporter
-                                .report("succesful announcement".into())
+                                .report("succesful announcement")
                                 .await
                                 .map_err(Error::Progress)?;
                             break;
@@ -191,6 +207,108 @@ impl Hooks {
                 }
             } else {
                 tracing::warn!("no link-rpc-socket to announce to");
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self, reporter))]
+    pub(crate) async fn pre_receive<
+        E: std::error::Error + Send + 'static,
+        P: ProgressReporter<Error = E>,
+    >(
+        &self,
+        reporter: &mut P,
+        urn: Urn,
+    ) -> Result<(), Error<E>> {
+        for seed in &self.seeds {
+            let from = (seed.peer, seed.addrs.clone());
+            if let Some(label) = &seed.label {
+                reporter
+                    .report(format!("replicating from `{}` label: {}", seed.peer, label))
+                    .await
+                    .map_err(Error::Progress)?
+            } else {
+                reporter
+                    .report(format!("replicating from `{}`", seed.peer))
+                    .await
+                    .map_err(Error::Progress)?
+            }
+            match self.peerless.replicate(from, urn.clone(), None).await {
+                Ok(result) => reporter
+                    .report(format!("replication success: {:#?}", result))
+                    .await
+                    .map_err(Error::Progress)?,
+                Err(err) => reporter
+                    .report(format!("failed to replicate from `{}`: {}", seed.peer, err))
+                    .await
+                    .map_err(Error::Progress)?,
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self, reporter))]
+    pub(crate) async fn post_upload<
+        E: std::error::Error + Send + 'static,
+        P: ProgressReporter<Error = E>,
+    >(
+        &self,
+        reporter: &mut P,
+        urn: Urn,
+    ) -> Result<(), Error<E>> {
+        tracing::info!(urn=%urn, seeds=?self.seeds, "request-pull to seeds");
+        for seed in &self.seeds {
+            let to = (seed.peer, seed.addrs.clone());
+            if let Some(label) = &seed.label {
+                reporter
+                    .report(format!("request-pull to `{}` label: {}", seed.peer, label))
+                    .await
+                    .map_err(Error::Progress)?
+            } else {
+                reporter
+                    .report(format!("request-pull to `{}`", seed.peer))
+                    .await
+                    .map_err(Error::Progress)?
+            }
+            match self.peerless.request_pull(to, urn.clone()).await {
+                Ok(mut request) => {
+                    while let Some(resp) = request.next().await {
+                        match resp {
+                            Ok(request_pull::Response::Success(s)) => {
+                                // TODO(finto): Nicer Progress
+                                reporter
+                                    .report(format!("{:#?}", s))
+                                    .await
+                                    .map_err(Error::Progress)?;
+                                break;
+                            },
+                            Ok(request_pull::Response::Error(e)) => {
+                                tracing::error!(peer=%seed.peer, err=%e.message, "request-pull failed");
+                                reporter.report(e.message).await.map_err(Error::Progress)?;
+                                break;
+                            },
+                            Ok(request_pull::Response::Progress(p)) => {
+                                reporter.report(p.message).await.map_err(Error::Progress)?
+                            },
+                            Err(err) => {
+                                tracing::error!(peer=%seed.peer, err=%err, "request-pull transport failed");
+                                reporter
+                                    .report(err.to_string())
+                                    .await
+                                    .map_err(Error::Progress)?;
+                                break;
+                            },
+                        }
+                    }
+                },
+                Err(err) => reporter
+                    .report(format!(
+                        "failed to request-pull to `{}`: {}",
+                        seed.peer, err
+                    ))
+                    .await
+                    .map_err(Error::Progress)?,
             }
         }
         Ok(())
