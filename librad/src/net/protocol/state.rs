@@ -59,9 +59,17 @@ impl<S, G> State<S, G> {
         I: IntoIterator<Item = E>,
         E: Into<event::Upstream>,
     {
-        for evt in evs {
-            self.phone.emit(evt)
-        }
+        emit(&self.phone, evs)
+    }
+}
+
+pub fn emit<I, E>(phone: &TinCans, evs: I)
+where
+    I: IntoIterator<Item = E>,
+    E: Into<event::Upstream>,
+{
+    for evt in evs {
+        phone.emit(evt)
     }
 }
 

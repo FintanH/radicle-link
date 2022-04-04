@@ -90,11 +90,11 @@ mod incoming {
                 stream.close(CloseReason::InvalidUpgrade)
             },
 
-            Ok(Git(up)) => recv::git(&state, up).await,
-            Ok(Gossip(up)) => recv::gossip(state, up).await,
+            Ok(Git(up)) => recv::git(&state.config.paths, up).await,
+            Ok(Gossip(up)) => recv::gossip(state.clone().into(), state, up).await,
             Ok(Membership(up)) => recv::membership(state, up).await,
-            Ok(Interrogation(up)) => recv::interrogation(state, up).await,
-            Ok(RequestPull(up)) => recv::request_pull(state, up).await,
+            Ok(Interrogation(up)) => recv::interrogation(state.endpoint, state.caches, up).await,
+            Ok(RequestPull(up)) => recv::request_pull(state.spawner, state.request_pull, up).await,
         }
     }
 
@@ -115,7 +115,7 @@ mod incoming {
             Ok(Interrogation(up)) => deny_uni(up.into_stream(), "interrogation"),
             Ok(RequestPull(up)) => deny_uni(up.into_stream(), "request-pull"),
 
-            Ok(Gossip(up)) => recv::gossip(state, up).await,
+            Ok(Gossip(up)) => recv::gossip(state.clone().into(), state, up).await,
             Ok(Membership(up)) => recv::membership(state, up).await,
         }
     }

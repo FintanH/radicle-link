@@ -15,21 +15,38 @@ use crate::{
     net::{
         connection::RemotePeer,
         protocol::{
+            self,
             broadcast,
             gossip,
             info::PeerInfo,
             io::{codec, peer_advertisement},
             membership,
+            state,
             ProtocolStorage,
             RequestPullGuard,
             State,
+            TinCans,
         },
         upgrade::{self, Upgraded},
     },
     PeerId,
 };
 
+pub(in crate::net::protocol) struct GossipState {
+    pub local_id: PeerId,
+    pub endpoint: protocol::Endpoint,
+    pub membership: membership::Hpv<protocol::Pcg64Mcg, SocketAddr>,
+    pub phone: TinCans,
+}
+
+impl<S, G> From<state::State<S, G>> for GossipState {
+    fn from(_: state::State<S, G>) -> Self {
+        todo!()
+    }
+}
+
 pub(in crate::net::protocol) async fn gossip<S, G, T>(
+    gossip: GossipState,
     state: State<S, G>,
     stream: Upgraded<upgrade::Gossip, T>,
 ) where
@@ -48,12 +65,12 @@ pub(in crate::net::protocol) async fn gossip<S, G, T>(
         match x {
             Err(e) => {
                 tracing::warn!(err = ?e, "gossip recv error");
-                let membership::TnT { trans, ticks } = state.membership.connection_lost(remote_id);
-                state.emit(trans);
+                let membership::TnT { trans, ticks } = gossip.membership.connection_lost(remote_id);
+                state::emit(&gossip.phone, trans);
                 state
                     .tick(membership::tocks(
-                        &state.membership,
-                        peer_advertisement(&state.endpoint),
+                        &gossip.membership,
+                        peer_advertisement(&gossip.endpoint),
                         ticks,
                     ))
                     .await;
@@ -63,13 +80,13 @@ pub(in crate::net::protocol) async fn gossip<S, G, T>(
 
             Ok(msg) => {
                 let peer_info = || PeerInfo {
-                    peer_id: state.local_id,
-                    advertised_info: peer_advertisement(&state.endpoint)(),
+                    peer_id: gossip.local_id,
+                    advertised_info: peer_advertisement(&gossip.endpoint)(),
                     seen_addrs: iter::empty().into(),
                 };
                 match state
                     .gossip
-                    .apply(&state.membership, peer_info, remote_id, msg)
+                    .apply(&gossip.membership, peer_info, remote_id, msg)
                     .await
                 {
                     // Partial view states diverge apparently, and the stream is
@@ -82,8 +99,8 @@ pub(in crate::net::protocol) async fn gossip<S, G, T>(
                         );
                         state
                             .tick(membership::tocks(
-                                &state.membership,
-                                peer_advertisement(&state.endpoint),
+                                &gossip.membership,
+                                peer_advertisement(&gossip.endpoint),
                                 Some(disconnect(remote_id)),
                             ))
                             .await;
@@ -92,7 +109,7 @@ pub(in crate::net::protocol) async fn gossip<S, G, T>(
                     },
 
                     Ok((may_event, tocks)) => {
-                        state.emit(may_event);
+                        state::emit(&gossip.phone, may_event);
                         state.tick(tocks).await;
                     },
                 }

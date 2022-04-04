@@ -309,6 +309,23 @@ fn alpn(network: Network) -> Alpn {
     }
 }
 
+async fn make_client_endpoint<S>(
+    signer: S,
+    sock: UdpSocket,
+    alpn: Alpn,
+    remote: &SocketAddr,
+) -> Result<quinn::Connecting>
+where
+    S: Signer + Clone + Send + Sync + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let mut builder = quinn::Endpoint::builder();
+    let config = make_client_config(signer.clone(), alpn.clone())?;
+    builder.default_client_config(config.clone());
+    let (endpoint, _) = builder.with_socket(sock)?;
+    Ok(endpoint.connect_with(config, remote, &PeerId::from_signer(&signer).to_string())?)
+}
+
 async fn make_endpoint<S>(
     signer: S,
     sock: UdpSocket,

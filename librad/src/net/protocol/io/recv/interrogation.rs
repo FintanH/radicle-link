@@ -13,19 +13,15 @@ use futures::{
 use futures_codec::FramedRead;
 use thiserror::Error;
 
-use crate::{
-    git::storage,
-    net::{
-        connection::Duplex,
-        protocol::{
-            cache,
-            interrogation::{self, Request, Response},
-            io::{self, codec},
-            Endpoint,
-            State,
-        },
-        upgrade::{self, Upgraded},
+use crate::net::{
+    connection::Duplex,
+    protocol::{
+        cache,
+        interrogation::{self, Request, Response},
+        io::{self, codec},
+        Endpoint,
     },
+    upgrade::{self, Upgraded},
 };
 
 #[derive(Debug, Error)]
@@ -39,11 +35,11 @@ lazy_static! {
         encode(&Response::Error(interrogation::Error::Internal)).unwrap();
 }
 
-pub(in crate::net::protocol) async fn interrogation<S, G, T>(
-    state: State<S, G>,
+pub(in crate::net::protocol) async fn interrogation<T>(
+    endpoint: Endpoint,
+    caches: cache::Caches,
     stream: Upgraded<upgrade::Interrogation, T>,
 ) where
-    S: storage::Pooled<storage::Storage> + Send + 'static,
     T: Duplex<Addr = SocketAddr>,
     T::Read: AsyncRead + Unpin,
     T::Write: AsyncWrite + Unpin,
@@ -59,7 +55,7 @@ pub(in crate::net::protocol) async fn interrogation<S, G, T>(
         match x {
             Err(e) => tracing::warn!(err = ?e, "interrogation recv error"),
             Ok(req) => {
-                let resp = handle_request(&state.endpoint, &state.caches.urns, remote_addr, req)
+                let resp = handle_request(&endpoint, &caches.urns, remote_addr, req)
                     .map(Cow::from)
                     .unwrap_or_else(|e| {
                         tracing::error!(err = ?e, "error handling request");

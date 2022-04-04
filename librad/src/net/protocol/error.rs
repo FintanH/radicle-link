@@ -11,7 +11,7 @@ use super::interrogation;
 use crate::{git::storage::pool::PoolError, net::quic, PeerId};
 
 mod internal;
-pub(super) use internal::*;
+pub(in crate::net) use internal::*;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]

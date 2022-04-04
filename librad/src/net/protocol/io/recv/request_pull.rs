@@ -5,29 +5,25 @@
 //!
 //! [rfc]: https://github.com/radicle-dev/radicle-link/blob/master/docs%2Frfc%2F0702-request-pull.adoc
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use futures::{
-    future,
     io::{AsyncWrite, AsyncWriteExt as _, BufReader, BufWriter, IntoSink},
     SinkExt as _,
     StreamExt as _,
 };
 use futures_codec::FramedRead;
+use link_async::Spawner;
 use thiserror::Error;
 
 use crate::{
-    git::Urn,
     net::{
         connection::{Duplex, RemotePeer as _},
-        peer::event::downstream::Gossip,
         protocol::{
             self,
-            control,
             gossip,
             io::codec,
-            request_pull::{self, error, progress, Progress, Ref, Request, Response},
-            State,
+            request_pull::{self, error, progress, Progress, Request, Response},
         },
         quic,
         upgrade::{self, Upgraded},
@@ -42,7 +38,8 @@ enum Error {
 }
 
 pub(in crate::net::protocol) async fn request_pull<S, G>(
-    state: State<S, G>,
+    spawner: Arc<Spawner>,
+    state: request_pull::State<S, G>,
     stream: Upgraded<upgrade::RequestPull, quic::BidiStream>,
 ) where
     S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
@@ -67,6 +64,7 @@ pub(in crate::net::protocol) async fn request_pull<S, G>(
             Ok(req) => {
                 let resp = encode(
                     &handle_request(
+                        spawner,
                         state,
                         remote_peer,
                         req,
@@ -113,7 +111,8 @@ where
 }
 
 async fn handle_request<'a, S, G, W>(
-    state: State<S, G>,
+    spawner: Arc<Spawner>,
+    state: request_pull::State<S, G>,
     peer: PeerId,
     Request { urn }: Request,
     conn: quic::Connection,
@@ -125,48 +124,41 @@ where
     W: AsyncWrite + Unpin,
 {
     report.progress(progress::authorizing(&urn)).await;
-    match state.request_pull.guard(&peer, &urn) {
+    match state.guard(&peer, &urn) {
         Ok(guard) => report.progress(progress::guard(guard)).await,
         Err(err) => return error::guard(err).into(),
     }
 
     report.progress(progress::replicating(&urn)).await;
-    match state
-        .request_pull
-        .replicate(&state.spawner, urn.clone(), conn)
-        .await
-    {
-        Ok(success) => {
-            let tips = success.refs.iter().map(|Ref { oid, .. }| oid).copied();
-            gossip(&state, peer, &urn, tips).await;
-            success.into()
-        },
+    match state.replicate(&spawner, urn.clone(), conn).await {
+        Ok(success) => success.into(),
         Err(err) => error::replication_error(err).into(),
     }
 }
 
-async fn gossip<S, G>(
-    state: &State<S, G>,
-    exclude: PeerId,
-    urn: &Urn,
-    revs: impl Iterator<Item = git_ext::Oid>,
-) where
-    S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> + 'static,
-    G: protocol::RequestPullGuard,
-{
-    future::join_all(revs.map(|rev| {
-        control::gossip(
-            state,
-            Gossip::Announce(gossip::Payload {
-                urn: urn.clone(),
-                rev: Some(rev.into()),
-                origin: None,
-            }),
-            Some(exclude),
-        )
-    }))
-    .await;
-}
+// TODO(finto): this needs to go elsewhere
+// async fn gossip<S, G>(
+//     state: &State<S, G>,
+//     exclude: PeerId,
+//     urn: &Urn,
+//     revs: impl Iterator<Item = git_ext::Oid>,
+// ) where
+//     S: protocol::ProtocolStorage<SocketAddr, Update = gossip::Payload> +
+// 'static,     G: protocol::RequestPullGuard,
+// {
+//     future::join_all(revs.map(|rev| {
+//         control::gossip(
+//             state,
+//             Gossip::Announce(gossip::Payload {
+//                 urn: urn.clone(),
+//                 rev: Some(rev.into()),
+//                 origin: None,
+//             }),
+//             Some(exclude),
+//         )
+//     }))
+//     .await;
+// }
 
 fn encode(resp: &Response) -> Result<Vec<u8>, Error> {
     Ok(minicbor::to_vec(resp)?)
