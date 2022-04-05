@@ -16,7 +16,7 @@ pub use connection::{
 };
 
 mod endpoint;
-pub use endpoint::{BoundEndpoint, Endpoint, IncomingConnections};
+pub use endpoint::{BoundEndpoint, ConnectPeer, Endpoint, Endpointless, IncomingConnections};
 
 pub mod error;
 pub use error::{Error, Result};

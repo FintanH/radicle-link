@@ -22,6 +22,7 @@ use test_helpers::logging;
 fn default_config() -> testnet::Config {
     testnet::Config {
         num_peers: nonzero!(3usize),
+        num_clients: 0,
         min_connected: 3,
         bootstrap: testnet::Bootstrap::from_env(),
     }

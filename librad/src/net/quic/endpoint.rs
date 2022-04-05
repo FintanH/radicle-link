@@ -6,11 +6,12 @@
 use std::{
     collections::{BTreeSet, HashMap},
     io,
-    net::{SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
     pin::Pin,
     sync::{Arc, Weak},
 };
 
+use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt as _, TryStreamExt as _};
 use if_watch::IfWatcher;
 use link_async::Spawner;
@@ -53,6 +54,15 @@ impl<'a, const R: usize> LocalAddr for BoundEndpoint<'a, R> {
     }
 }
 
+#[async_trait]
+pub trait ConnectPeer {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)>;
+}
+
 /// A QUIC endpoint.
 ///
 /// `R` is the number of reservations for outgoing unidirectional streams, see
@@ -64,6 +74,48 @@ pub struct Endpoint<const R: usize> {
     listen_addrs: Arc<RwLock<BTreeSet<SocketAddr>>>,
     conntrack: Conntrack,
     _refcount: Arc<()>,
+}
+
+#[derive(Clone)]
+pub struct Endpointless<const R: usize> {
+    peer_id: PeerId,
+    endpoint: quinn::Endpoint,
+}
+
+impl<const R: usize> Endpointless<R> {
+    pub async fn new<S>(signer: S, network: Network) -> Result<Self>
+    where
+        S: Signer + Clone + Send + Sync + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let peer_id = PeerId::from_signer(&signer);
+
+        let listen_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+        let sock = bind_socket(listen_addr)?;
+        let endpoint = make_endpointless(signer, sock, alpn(network)).await?;
+        Ok(Self { peer_id, endpoint })
+    }
+}
+
+#[async_trait]
+impl<const R: usize> ConnectPeer for Endpointless<R> {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)> {
+        if peer == self.peer_id {
+            return Err(Error::SelfConnect);
+        }
+
+        let conn = self
+            .endpoint
+            .connect(addr, peer.as_dns_name().as_ref().into())?
+            .await?;
+        let (conn, streams) = Connection::new(Conntrack::new(), R, peer, conn);
+
+        Ok((conn, streams.boxed()))
+    }
 }
 
 impl<const R: usize> Endpoint<R> {
@@ -198,6 +250,17 @@ impl<const R: usize> LocalAddr for Endpoint<R> {
     }
 }
 
+#[async_trait]
+impl<const R: usize> ConnectPeer for Endpoint<R> {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)> {
+        Self::connect(self, peer, addr).await
+    }
+}
+
 // TODO: tune buffer sizes
 fn bind_socket(listen_addr: SocketAddr) -> Result<UdpSocket> {
     let sock = Socket::new(
@@ -309,21 +372,15 @@ fn alpn(network: Network) -> Alpn {
     }
 }
 
-async fn make_client_endpoint<S>(
-    signer: S,
-    sock: UdpSocket,
-    alpn: Alpn,
-    remote: &SocketAddr,
-) -> Result<quinn::Connecting>
+async fn make_endpointless<S>(signer: S, sock: UdpSocket, alpn: Alpn) -> Result<quinn::Endpoint>
 where
     S: Signer + Clone + Send + Sync + 'static,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut builder = quinn::Endpoint::builder();
-    let config = make_client_config(signer.clone(), alpn.clone())?;
-    builder.default_client_config(config.clone());
-    let (endpoint, _) = builder.with_socket(sock)?;
-    Ok(endpoint.connect_with(config, remote, &PeerId::from_signer(&signer).to_string())?)
+    builder.default_client_config(make_client_config(signer.clone(), alpn.clone())?);
+
+    Ok(builder.with_socket(sock)?.0)
 }
 
 async fn make_endpoint<S>(

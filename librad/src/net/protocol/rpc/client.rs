@@ -1,30 +1,56 @@
 // Copyright © 2022 The Radicle Link Contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{future::Future as _, net::SocketAddr, pin, sync::Arc, task};
 
+use crypto::Signer;
 use either::Either;
 use futures::{Stream, StreamExt, TryFutureExt};
 use identities::Xor;
-use link_async::Spawner;
+use link_async::{Spawner, Task};
 
 use crate::{
     git::{self, identities::local::LocalIdentity, Urn},
     net::{
         connection::{CloseReason, RemoteAddr as _, RemotePeer},
         protocol::{self, interrogation, io, request_pull, PeerAdvertisement},
-        quic,
+        quic::{self, ConnectPeer},
         replication::{self, Replication},
         upgrade,
+        Network,
     },
     paths::Paths,
     PeerId,
 };
 
 #[derive(Clone)]
-pub struct Client<Endpoint: Clone + Send + Sync> {
+pub struct Config<Signer> {
+    pub signer: Signer,
+    pub paths: Paths,
+    pub replication: replication::Config,
+    pub user_storage: UserStorage,
+    pub network: Network,
+}
+
+#[derive(Clone, Debug)]
+pub struct UserStorage {
+    pool_size: usize,
+}
+
+impl Default for UserStorage {
+    fn default() -> Self {
+        Self {
+            pool_size: num_cpus::get_physical(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Client<Signer, Endpoint: Clone + Send + Sync> {
+    config: Config<Signer>,
     local_id: PeerId,
     spawner: Arc<Spawner>,
+    paths: Arc<Paths>,
     endpoint: Endpoint,
     repl: Replication,
     user_store: git::storage::Pool<git::storage::Storage>,
@@ -42,6 +68,23 @@ pub mod error {
         },
         PeerId,
     };
+
+    #[derive(Debug, Error)]
+    #[non_exhaustive]
+    pub enum Init {
+        #[error(transparent)]
+        Quic(#[from] quic::error::Error),
+
+        #[error("no async context found, try calling `.enter()` on the runtime")]
+        Runtime,
+
+        #[error(transparent)]
+        Storage(#[from] storage::error::Init),
+
+        #[cfg(feature = "replication-v3")]
+        #[error(transparent)]
+        Replication(#[from] replication::error::Init),
+    }
 
     #[derive(Debug, Error)]
     #[non_exhaustive]
@@ -69,6 +112,9 @@ pub mod error {
     #[non_exhaustive]
     pub enum RequestPull {
         #[error(transparent)]
+        Incoming(#[from] Incoming),
+
+        #[error(transparent)]
         NoConnection(#[from] NoConnection),
 
         #[error(transparent)]
@@ -94,21 +140,113 @@ pub mod error {
     }
 
     #[derive(Debug, Error)]
+    #[non_exhaustive]
+    pub enum Storage {
+        #[error(transparent)]
+        Storage(#[from] storage::Error),
+
+        #[error(transparent)]
+        Pool(storage::PoolError),
+    }
+
+    impl From<storage::PoolError> for Storage {
+        fn from(e: storage::PoolError) -> Self {
+            Self::Pool(e)
+        }
+    }
+
+    #[derive(Debug, Error)]
     #[error("unable to obtain connection to {0}")]
     pub struct NoConnection(pub PeerId);
+
+    #[derive(Debug, Error)]
+    pub enum Incoming {
+        #[error(transparent)]
+        Quic(#[from] quic::error::Error),
+        #[error("expected bidirectional connection, but found a unidirectional connection")]
+        Uni,
+        #[error("connection lost")]
+        ConnectionLost,
+    }
 }
 
-#[async_trait]
-pub trait Connection {
-    async fn connect(
-        &self,
-        remote: impl Into<(PeerId, Vec<SocketAddr>)>,
-    ) -> Option<quic::Connection>;
+struct RequestPull<S> {
+    responses: S,
+    replicate: Option<Task<()>>,
 }
 
-impl<E> Client<E>
+impl<S> Stream for RequestPull<S>
 where
-    E: Connection + Clone + Send + Sync,
+    S: Stream<Item = Result<request_pull::Response, error::RequestPull>> + Unpin,
+{
+    type Item = Result<request_pull::Response, error::RequestPull>;
+
+    fn poll_next(
+        mut self: pin::Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<Option<Self::Item>> {
+        match &mut self.replicate {
+            Some(replicate) => {
+                futures::pin_mut!(replicate);
+                match replicate.poll(cx) {
+                    task::Poll::Ready(Ok(())) => {
+                        tracing::trace!("request-pull replication task completed");
+                        self.replicate = None;
+                    },
+                    task::Poll::Ready(Err(e)) => {
+                        // TODO(finto): propagate panic
+                        tracing::warn!(err = %e, "request-pull replication task failed")
+                    },
+                    task::Poll::Pending => {},
+                }
+            },
+            None => {},
+        }
+        self.responses.poll_next_unpin(cx)
+    }
+}
+
+impl<S> Client<S, protocol::Endpointless>
+where
+    S: Signer + Clone,
+{
+    pub async fn new(config: Config<S>) -> Result<Self, error::Init> {
+        let local_id = PeerId::from_signer(&config.signer);
+        let spawner = Spawner::from_current()
+            .map(Arc::new)
+            .ok_or(error::Init::Runtime)?;
+        let user_store = git::storage::Pool::new(
+            git::storage::pool::ReadWriteConfig::new(
+                config.paths.clone(),
+                config.signer.clone(),
+                git::storage::pool::Initialised::no(),
+            ),
+            config.user_storage.pool_size,
+        );
+
+        #[cfg(feature = "replication-v3")]
+        let repl = Replication::new(&config.paths, config.replication)?;
+        #[cfg(not(feature = "replication-v3"))]
+        let repl = Replication::new(config.replication);
+        let endpoint =
+            protocol::Endpointless::new(config.signer.clone(), config.network.clone()).await?;
+        let paths = config.paths.clone();
+        Ok(Self {
+            config,
+            local_id,
+            spawner,
+            paths: Arc::new(paths),
+            endpoint,
+            repl,
+            user_store,
+        })
+    }
+}
+
+impl<S, E> Client<S, E>
+where
+    S: Signer + Clone,
+    E: ConnectPeer + Clone + Send + Sync,
 {
     pub fn peer_id(&self) -> PeerId {
         self.local_id
@@ -123,14 +261,11 @@ where
         #[cfg(feature = "replication-v3")]
         {
             // TODO: errors
-            let from = from.into();
-            let remote_peer = from.0;
-            let conn = self
-                .endpoint
-                .connect(from)
+            let (remote_peer, addrs) = from.into();
+            let (conn, _) = io::connect(&self.endpoint, remote_peer, addrs)
                 .await
                 .ok_or(error::Replicate::NoConnection(remote_peer))?;
-            let store = self.user_store.gpet().await?;
+            let store = self.user_store.get().await?;
             self.repl
                 .replicate(&self.spawner, store, conn, urn, whoami)
                 .err_into()
@@ -153,11 +288,8 @@ where
         impl Stream<Item = Result<request_pull::Response, error::RequestPull>>,
         error::RequestPull,
     > {
-        let to = to.into();
-        let remote_peer = to.0;
-        let conn = self
-            .endpoint
-            .connect(to)
+        let (remote_peer, addrs) = to.into();
+        let (conn, incoming) = io::connect(&self.endpoint, remote_peer, addrs)
             .await
             .ok_or(error::NoConnection(remote_peer))?;
 
@@ -168,18 +300,20 @@ where
         )
         .await?
         .map(|i| i.map_err(error::RequestPull::from));
-        Ok(reply)
+
+        let replicate = incoming_git(self.spawner.clone(), self.paths.clone(), incoming).await?;
+        Ok(RequestPull {
+            responses: reply,
+            replicate: Some(replicate),
+        })
     }
 
     pub async fn interrogate(
         &self,
         from: impl Into<(PeerId, Vec<SocketAddr>)>,
     ) -> Result<Interrogation, error::NoConnection> {
-        let from = from.into();
-        let remote_peer = from.0;
-        let conn = self
-            .endpoint
-            .connect(from)
+        let (remote_peer, addrs) = from.into();
+        let (conn, _) = io::connect(&self.endpoint, remote_peer, addrs)
             .await
             .ok_or(error::NoConnection(remote_peer))?;
 
@@ -187,6 +321,17 @@ where
             peer: remote_peer,
             conn,
         })
+    }
+
+    /// Borrow a [`git::storage::Storage`] from the pool, and run a blocking
+    /// computation on it.
+    pub async fn using_storage<F, T>(&self, blocking: F) -> Result<T, error::Storage>
+    where
+        F: FnOnce(&git::storage::Storage) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let storage = self.user_store.get().await?;
+        Ok(self.spawner.blocking(move || blocking(&storage)).await)
     }
 }
 
@@ -202,37 +347,39 @@ where
         remote_addr = %streams.remote_addr()
     )
 )]
-pub(in crate::net::protocol) async fn incoming<I>(
+pub(in crate::net::protocol) async fn incoming_git<I>(
     spawner: Arc<Spawner>,
     paths: Arc<Paths>,
     streams: quic::IncomingStreams<I>,
-) where
+) -> Result<Task<()>, error::Incoming>
+where
     I: Stream<Item = quic::Result<Either<quic::BidiStream, quic::RecvStream>>> + Unpin,
 {
     use Either::{Left, Right};
 
     let streams = streams.fuse();
     futures::pin_mut!(streams);
-    loop {
-        match streams.next().await {
-            None => {
-                tracing::info!("connection lost");
-                break;
-            },
-            Some(stream) => {
-                tracing::info!("new ingress stream");
-                match stream {
-                    Ok(s) => match s {
-                        Left(bidi) => spawner.spawn(handle_bidi(paths.clone(), bidi)).detach(),
-                        Right(uni) => spawner.spawn(handle_uni(uni)).detach(),
+    match streams.next().await {
+        None => {
+            tracing::info!("connection lost");
+            Err(error::Incoming::ConnectionLost)
+        },
+        Some(stream) => {
+            tracing::info!("new ingress stream");
+            match stream {
+                Ok(s) => match s {
+                    Left(bidi) => Ok(spawner.spawn(handle_bidi(paths.clone(), bidi))),
+                    Right(uni) => {
+                        handle_uni(uni);
+                        Err(error::Incoming::Uni)
                     },
-                    Err(e) => {
-                        tracing::warn!(err = ?e, "ingress stream error");
-                        break;
-                    },
-                }
-            },
-        }
+                },
+                Err(e) => {
+                    tracing::warn!(err = ?e, "ingress stream error");
+                    Err(e.into())
+                },
+            }
+        },
     }
 }
 
@@ -242,6 +389,7 @@ pub(super) async fn handle_bidi(paths: Arc<Paths>, stream: quic::BidiStream) {
     match upgrade::with_upgraded(stream).await {
         Err(upgrade::Error { stream, source }) => {
             tracing::warn!(err = ?source, "invalid upgrade");
+            // TODO(finto): consider returning an error
             stream.close(CloseReason::InvalidUpgrade)
         },
 
@@ -258,7 +406,7 @@ fn deny_bidi(stream: quic::BidiStream, kind: &str) {
     stream.close(CloseReason::InvalidUpgrade)
 }
 
-pub(super) async fn handle_uni(stream: quic::RecvStream) {
+pub(super) fn handle_uni(stream: quic::RecvStream) {
     stream.close(CloseReason::InvalidUpgrade)
 }
 

@@ -60,6 +60,7 @@ pub use state::Quota;
 use state::{RateLimits, State, StateConfig, Storage};
 
 pub type Endpoint = quic::Endpoint<2>;
+pub type Endpointless = quic::Endpointless<2>;
 
 #[derive(Clone, Debug)]
 pub struct Config<Guard = config::DenyAll> {
