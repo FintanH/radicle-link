@@ -17,14 +17,7 @@ pub use super::error;
 use super::streams;
 use crate::{
     net::{
-        protocol::{
-            event::upstream as event,
-            gossip,
-            Endpoint,
-            ProtocolStorage,
-            RequestPullGuard,
-            State,
-        },
+        protocol::{event::upstream as event, gossip, ProtocolStorage, RequestPullGuard, State},
         quic,
     },
     PeerId,
@@ -79,8 +72,8 @@ where
 }
 
 #[tracing::instrument(skip(endpoint, addrs))]
-pub async fn connect<'a, Addrs>(
-    endpoint: &Endpoint,
+pub async fn connect<'a, E, Addrs>(
+    endpoint: &E,
     remote_id: PeerId,
     addrs: Addrs,
 ) -> Option<(
@@ -90,6 +83,7 @@ pub async fn connect<'a, Addrs>(
     >,
 )>
 where
+    E: quic::ConnectPeer + Clone,
     Addrs: IntoIterator<Item = SocketAddr>,
 {
     fn routable(addr: &SocketAddr) -> bool {
