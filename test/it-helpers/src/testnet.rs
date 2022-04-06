@@ -25,7 +25,11 @@ use librad::{
         connection::{LocalAddr, LocalPeer},
         discovery::{self, Discovery as _},
         peer::{self, Peer},
-        protocol::{self, request_pull::Guard},
+        protocol::{
+            self,
+            request_pull::Guard,
+            rpc::client::{self, Client},
+        },
         Network,
     },
     paths::Paths,
@@ -45,6 +49,39 @@ impl Guard for AllowAll {
 
     fn guard(&self, _: &PeerId, _: &git::Urn) -> Result<Self::Output, Self::Error> {
         Ok(true)
+    }
+}
+
+pub struct TestClient {
+    client: Client<SecretKey, protocol::Endpointless>,
+}
+
+impl Deref for TestClient {
+    type Target = Client<SecretKey, protocol::Endpointless>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+impl TestClient {
+    pub async fn init() -> anyhow::Result<(TestClient, TempDir)> {
+        let tmp = tempdir()?;
+        let paths = Paths::from_root(tmp.path())?;
+        let key = SecretKey::new();
+        let config = client::Config {
+            signer: key,
+            paths,
+            replication: Default::default(),
+            user_storage: Default::default(),
+            network: Default::default(),
+        };
+        Ok((
+            TestClient {
+                client: Client::new(config).await?,
+            },
+            tmp,
+        ))
     }
 }
 
@@ -228,6 +265,7 @@ impl Default for Bootstrap {
 
 pub struct Config {
     pub num_peers: NonZeroUsize,
+    pub num_clients: usize,
     pub min_connected: usize,
     pub bootstrap: Bootstrap,
 }
@@ -282,6 +320,7 @@ pub struct Testnet {
     sig: Vec<Box<dyn FnOnce()>>,
     main: Vec<tokio::task::JoinHandle<()>>,
     peers: Vec<RunningTestPeer>,
+    clients: Vec<TestClient>,
     rt: Option<tokio::runtime::Runtime>,
     _tmp: Vec<TempDir>,
 }
@@ -289,6 +328,10 @@ pub struct Testnet {
 impl Testnet {
     pub fn peers(&self) -> &[RunningTestPeer] {
         self.as_ref()
+    }
+
+    pub fn clients(&self) -> &[TestClient] {
+        &self.clients
     }
 
     pub fn enter<F: Future>(&self, fut: F) -> F::Output {
@@ -320,13 +363,15 @@ pub fn run(config: Config) -> anyhow::Result<Testnet> {
         .build()?;
 
     let min_connected = config.min_connected;
+    let num_clients = config.num_clients;
     let bootstrapped = rt.block_on(bootstrap(config))?;
     let num_peers = bootstrapped.len();
 
     let mut sig = Vec::with_capacity(num_peers);
     let mut main = Vec::with_capacity(num_peers);
     let mut peers = Vec::with_capacity(num_peers);
-    let mut tmps = Vec::with_capacity(num_peers);
+    let mut clients = Vec::with_capacity(num_clients);
+    let mut tmps = Vec::with_capacity(num_peers + num_clients);
     let mut events = Vec::with_capacity(num_peers);
 
     for bound in bootstrapped {
@@ -350,10 +395,17 @@ pub fn run(config: Config) -> anyhow::Result<Testnet> {
     }
     rt.block_on(wait_converged(events, min_connected));
 
+    for _ in 0..num_clients {
+        let (client, tmp) = rt.block_on(TestClient::init())?;
+        tmps.push(tmp);
+        clients.push(client);
+    }
+
     Ok(Testnet {
         sig,
         main,
         peers,
+        clients,
         rt: Some(rt),
         _tmp: tmps,
     })

@@ -20,6 +20,7 @@ fn list_identities_returns_only_local_projects() {
 
     let net = testnet::run(testnet::Config {
         num_peers: nonzero!(3usize),
+        num_clients: 0,
         min_connected: 3,
         bootstrap: testnet::Bootstrap::from_env(),
     })

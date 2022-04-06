@@ -122,6 +122,7 @@ fn remote_checkout() {
 fn config() -> testnet::Config {
     testnet::Config {
         num_peers: nonzero!(2usize),
+        num_clients: 0,
         min_connected: 2,
         bootstrap: testnet::Bootstrap::from_env(),
     }
