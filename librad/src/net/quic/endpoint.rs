@@ -6,11 +6,12 @@
 use std::{
     collections::{BTreeSet, HashMap},
     io,
-    net::{SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
     pin::Pin,
     sync::{Arc, Weak},
 };
 
+use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt as _, TryStreamExt as _};
 use if_watch::IfWatcher;
 use link_async::Spawner;
@@ -51,6 +52,17 @@ impl<'a, const R: usize> LocalAddr for BoundEndpoint<'a, R> {
     fn listen_addrs(&self) -> Vec<SocketAddr> {
         self.endpoint.listen_addrs()
     }
+}
+
+/// Attempt to connect to a remote peer's address, giving back the connection
+/// and incoming stream.
+#[async_trait]
+pub trait ConnectPeer {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)>;
 }
 
 /// A QUIC endpoint.
@@ -198,6 +210,61 @@ impl<const R: usize> LocalAddr for Endpoint<R> {
     }
 }
 
+#[async_trait]
+impl<const R: usize> ConnectPeer for Endpoint<R> {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)> {
+        Self::connect(self, peer, addr).await
+    }
+}
+
+/// An endpoint that can only establish outbound connections that
+/// result in two-way communication.
+#[derive(Clone)]
+pub struct SendOnly<const R: usize> {
+    peer_id: PeerId,
+    endpoint: quinn::Endpoint,
+}
+
+impl<const R: usize> SendOnly<R> {
+    pub async fn new<S>(signer: S, network: Network) -> Result<Self>
+    where
+        S: Signer + Clone + Send + Sync + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let peer_id = PeerId::from_signer(&signer);
+
+        let listen_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+        let sock = bind_socket(listen_addr)?;
+        let endpoint = make_send_only(signer, sock, alpn(network)).await?;
+        Ok(Self { peer_id, endpoint })
+    }
+}
+
+#[async_trait]
+impl<const R: usize> ConnectPeer for SendOnly<R> {
+    async fn connect<'a>(
+        &mut self,
+        peer: PeerId,
+        addr: &SocketAddr,
+    ) -> Result<(Connection, BoxedIncomingStreams<'a>)> {
+        if peer == self.peer_id {
+            return Err(Error::SelfConnect);
+        }
+
+        let conn = self
+            .endpoint
+            .connect(addr, peer.as_dns_name().as_ref().into())?
+            .await?;
+        let (conn, streams) = Connection::new(Conntrack::new(), R, peer, conn);
+
+        Ok((conn, streams.boxed()))
+    }
+}
+
 // TODO: tune buffer sizes
 fn bind_socket(listen_addr: SocketAddr) -> Result<UdpSocket> {
     let sock = Socket::new(
@@ -307,6 +374,17 @@ fn alpn(network: Network) -> Alpn {
             alpn
         },
     }
+}
+
+async fn make_send_only<S>(signer: S, sock: UdpSocket, alpn: Alpn) -> Result<quinn::Endpoint>
+where
+    S: Signer + Clone + Send + Sync + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let mut builder = quinn::Endpoint::builder();
+    builder.default_client_config(make_client_config(signer, alpn)?);
+
+    Ok(builder.with_socket(sock)?.0)
 }
 
 async fn make_endpoint<S>(
