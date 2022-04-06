@@ -9,7 +9,8 @@ use test_helpers::logging;
 
 fn config() -> testnet::Config {
     testnet::Config {
-        num_peers: nonzero!(2usize),
+        num_peers: nonzero!(1usize),
+        num_clients: 1,
         min_connected: 2,
         bootstrap: testnet::Bootstrap::from_env(),
     }
@@ -22,7 +23,7 @@ fn responds() {
     let net = testnet::run(config()).unwrap();
     net.enter(async {
         let responder = net.peers().index(0);
-        let requester = net.peers().index(1);
+        let requester = net.clients().index(0);
         let TestProject { project, .. } = {
             let proj = requester
                 .using_storage(TestProject::create)
