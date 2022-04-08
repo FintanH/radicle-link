@@ -14,6 +14,7 @@ use rand_pcg::Pcg64Mcg;
 use std_ext::Void;
 use tracing::Instrument as _;
 
+pub use super::quic::SendOnly;
 use super::{
     connection::{LocalAddr, LocalPeer},
     quic,
@@ -53,14 +54,13 @@ mod tick;
 
 mod tincans;
 pub(super) use tincans::TinCans;
-pub use tincans::{Connected, Interrogation, RecvError, RequestPull};
+pub use tincans::{Connected, RecvError};
 
 mod state;
 pub use state::Quota;
 use state::{RateLimits, State, StateConfig, Storage};
 
 pub type Endpoint = quic::Endpoint<2>;
-pub type SendOnly = quic::SendOnly<2>;
 
 #[derive(Clone, Debug)]
 pub struct Config<Guard = config::DenyAll> {

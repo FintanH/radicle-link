@@ -11,7 +11,7 @@ use link_async::Spawner;
 use crate::{
     git::{self, identities::local::LocalIdentity, Urn},
     net::{
-        protocol::{self, gossip},
+        protocol::{self, gossip, TinCans},
         replication::{self, Replication},
     },
     PeerId,
@@ -24,10 +24,9 @@ pub use crate::net::protocol::{
         downstream::{MembershipInfo, Stats},
         Upstream as ProtocolEvent,
     },
+    rpc::client::{self, Client, Interrogation},
     Connected,
-    Interrogation,
     PeerInfo,
-    RequestPull,
     RequestPullGuard,
 };
 
@@ -94,7 +93,6 @@ pub struct Peer<S, G = config::DenyAll> {
     user_store: git::storage::Pool<git::storage::Storage>,
     caches: protocol::Caches,
     spawner: Arc<Spawner>,
-    repl: Replication,
 }
 
 impl<S, G> Peer<S, G>
@@ -135,7 +133,7 @@ where
             spawner.clone(),
             pool,
             caches.urns.clone(),
-            repl.clone(),
+            repl,
             #[cfg(feature = "replication-v3")]
             phone.clone(),
         );
@@ -155,7 +153,6 @@ where
             user_store,
             caches,
             spawner,
-            repl,
         })
     }
 
@@ -169,6 +166,14 @@ where
 
     pub fn protocol_config(&self) -> &protocol::Config<G> {
         &self.config.protocol
+    }
+
+    pub fn rpc_client(&self) -> Result<Client<S, TinCans>, client::error::Init> {
+        let config = client::Config {
+            user_storage: self.user_store.clone().into(),
+            ..self.config.clone().into()
+        };
+        Client::new(config, self.spawner.clone(), self.phone.clone())
     }
 
     pub fn announce(&self, have: gossip::Payload) -> Result<(), gossip::Payload> {
@@ -243,28 +248,16 @@ where
     pub async fn interrogate(
         &self,
         from: impl Into<(PeerId, Vec<SocketAddr>)>,
-    ) -> Result<Interrogation, error::NoConnection> {
-        let from = from.into();
-        let remote_peer = from.0;
-        let Connected(conn) = self
-            .connect(from)
-            .await
-            .ok_or(error::NoConnection(remote_peer))?;
-        Ok(self.phone.interrogate(remote_peer, conn))
+    ) -> Result<Interrogation, error::Interrogation> {
+        Ok(self.rpc_client()?.interrogate(from).await?)
     }
 
-    pub async fn request_pull(
+    pub async fn request_pull<'a>(
         &self,
         to: impl Into<(PeerId, Vec<SocketAddr>)>,
         urn: Urn,
-    ) -> Result<RequestPull, error::NoConnection> {
-        let to = to.into();
-        let remote_peer = to.0;
-        let Connected(conn) = self
-            .connect(to)
-            .await
-            .ok_or(error::NoConnection(remote_peer))?;
-        Ok(self.phone.request_pull(urn, conn).await)
+    ) -> Result<client::RequestPull, error::RequestPull> {
+        Ok(self.rpc_client()?.request_pull(to, urn).await?)
     }
 
     /// Initiate replication of `urn` from the given peer.
@@ -287,28 +280,7 @@ where
         urn: Urn,
         whoami: Option<LocalIdentity>,
     ) -> Result<replication::Success, error::Replicate> {
-        #[cfg(feature = "replication-v3")]
-        {
-            // TODO: errors
-            let from = from.into();
-            let remote_peer = from.0;
-            let Connected(conn) = self
-                .connect(from)
-                .await
-                .ok_or(error::Replicate::NoConnection(remote_peer))?;
-            let store = self.user_store.get().await?;
-            self.repl
-                .replicate(&self.spawner, store, conn, urn, whoami)
-                .err_into()
-                .await
-        }
-        #[cfg(not(feature = "replication-v3"))]
-        {
-            self.repl
-                .replicate(&self.spawner, &self.user_store, from, urn, whoami)
-                .err_into()
-                .await
-        }
+        Ok(self.rpc_client()?.replicate(from, urn, whoami).await?)
     }
 
     // TODO: Augment `Connected` such that we can provide an alternative API,

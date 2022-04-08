@@ -7,9 +7,11 @@ use thiserror::Error;
 
 use crate::{
     git::storage,
-    net::{protocol::cache, replication},
-    PeerId,
+    net::protocol::{cache, rpc::client},
 };
+
+#[cfg(feature = "replication-v3")]
+use crate::net::replication;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -50,17 +52,31 @@ impl From<cache::urns::Error> for Init {
 }
 
 #[derive(Debug, Error)]
-pub enum Replicate {
-    #[error("no connection to {0}")]
-    NoConnection(PeerId),
-
-    #[error("failed to borrow storage from pool")]
-    Pool(#[from] storage::PoolError),
-
+pub enum Interrogation {
     #[error(transparent)]
-    Replicate(#[from] replication::error::Replicate),
+    Client(#[from] client::error::Init),
+    #[error(transparent)]
+    NoConnection(#[from] client::error::NoConnection),
 }
 
 #[derive(Debug, Error)]
-#[error("unable to obtain connection to {0}")]
-pub struct NoConnection(pub PeerId);
+pub enum RequestPull {
+    #[error(transparent)]
+    Client(#[from] client::error::Init),
+    #[error(transparent)]
+    NoConnection(#[from] client::error::RequestPull),
+}
+
+#[derive(Debug, Error)]
+pub enum Replicate {
+    #[error(transparent)]
+    Client(#[from] client::error::Init),
+    #[error(transparent)]
+    Replicate(#[from] Box<client::error::Replicate>),
+}
+
+impl From<client::error::Replicate> for Replicate {
+    fn from(x: client::error::Replicate) -> Self {
+        Self::Replicate(Box::new(x))
+    }
+}
