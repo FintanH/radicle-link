@@ -46,13 +46,13 @@ pub enum Error<ReplyError> {
 }
 
 #[tracing::instrument(level = "trace", skip(spawner, pool, incoming, out, hooks))]
-pub(crate) async fn run_git_subprocess<Replier: ProcessReply + Clone>(
+pub(crate) async fn run_git_subprocess<Replier: ProcessReply + Clone, S>(
     spawner: Arc<Spawner>,
     pool: Arc<storage::Pool<storage::Storage>>,
     incoming: tokio::sync::mpsc::Receiver<Message>,
     mut out: Replier,
     service: SshService<Urn>,
-    hooks: Hooks,
+    hooks: Hooks<S>,
 ) -> Result<(), Error<Replier::Error>> {
     let result = run_git_subprocess_inner(spawner, pool, incoming, &mut out, service, hooks).await;
     match out.close().await {
@@ -65,13 +65,13 @@ pub(crate) async fn run_git_subprocess<Replier: ProcessReply + Clone>(
 }
 
 #[tracing::instrument(level = "trace", skip(spawner, pool, incoming, out, hooks))]
-async fn run_git_subprocess_inner<Replier: ProcessReply + Clone>(
+async fn run_git_subprocess_inner<Replier: ProcessReply + Clone, S>(
     spawner: Arc<Spawner>,
     pool: Arc<storage::Pool<storage::Storage>>,
     mut incoming: tokio::sync::mpsc::Receiver<Message>,
     out: &mut Replier,
     service: SshService<Urn>,
-    hooks: Hooks,
+    hooks: Hooks<S>,
 ) -> Result<(), Error<Replier::Error>> {
     let mut git = {
         let storage = pool.get().await.map_err(|e| {

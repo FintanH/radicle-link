@@ -7,22 +7,26 @@ use std::{fmt, path::PathBuf, sync::Arc};
 
 use tracing::instrument;
 
-use librad::git::{
-    refs::{self, Refs},
-    storage,
-    Urn,
+use librad::{
+    git::{
+        refs::{self, Refs},
+        storage,
+        Urn,
+    },
+    net::{peer::Client, quic},
 };
 use link_async::Spawner;
 use linkd_lib::api::client::Reply;
 
 #[derive(Clone)]
-pub(crate) struct Hooks {
+pub(crate) struct Hooks<Signer> {
     spawner: Arc<Spawner>,
+    client: Client<Signer, quic::SendOnly>,
     pool: Arc<storage::Pool<storage::Storage>>,
     post_receive: PostReceive,
 }
 
-impl fmt::Debug for Hooks {
+impl<S> fmt::Debug for Hooks<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Hooks")
             .field("post_receive", &self.post_receive)
@@ -76,12 +80,17 @@ pub(crate) trait ProgressReporter {
         -> futures::future::BoxFuture<Result<(), Self::Error>>;
 }
 
-impl Hooks {
+impl<S> Hooks<S> {
     /// Create the default hooks, which do nothing except for update the sigrefs
     /// after a push
-    pub(crate) fn new(spawner: Arc<Spawner>, pool: Arc<storage::Pool<storage::Storage>>) -> Hooks {
+    pub(crate) fn new(
+        spawner: Arc<Spawner>,
+        client: Client<S, quic::SendOnly>,
+        pool: Arc<storage::Pool<storage::Storage>>,
+    ) -> Self {
         Self {
             spawner,
+            client,
             pool,
             post_receive: PostReceive { announce: None },
         }
@@ -91,11 +100,13 @@ impl Hooks {
     /// running at `rpc_socket_path`
     pub(crate) fn announce(
         spawner: Arc<Spawner>,
+        client: Client<S, quic::SendOnly>,
         pool: Arc<storage::Pool<storage::Storage>>,
         rpc_socket_path: PathBuf,
-    ) -> Hooks {
+    ) -> Self {
         Self {
             spawner,
+            client,
             pool,
             post_receive: PostReceive {
                 announce: Some(Announce { rpc_socket_path }),
