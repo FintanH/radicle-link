@@ -16,7 +16,10 @@ use librad::{
     },
     PeerId,
 };
-use lnk_clib::socket_activation;
+use lnk_clib::{
+    seed::{self, Seeds},
+    socket_activation,
+};
 use lnk_thrussh as thrussh;
 use lnk_thrussh_keys as thrussh_keys;
 use tokio::net::TcpListener;
@@ -104,15 +107,28 @@ pub async fn run<S: librad::Signer + Clone>(
         let endpoint = quic::SendOnly::new(config.signer.clone(), network).await?;
         Client::new(config, spawner.clone(), endpoint)?
     };
+
+    let seeds = {
+        let path = config.paths.seeds_file();
+        tracing::info!(seed_file=%path.display(), "loading seeds");
+        let store = seed::store::FileStore::<String>::new(path)?;
+        let (seeds, failures) = Seeds::load(&store, None).await?;
+        for fail in &failures {
+            tracing::warn!("failed to load configured seed: {}", fail);
+        }
+        seeds
+    };
+
     let hooks = if let Some(config::Announce { rpc_socket_path }) = config.announce {
         hooks::Hooks::announce(
             spawner.clone(),
             client,
+            seeds,
             storage_pool.clone(),
             rpc_socket_path,
         )
     } else {
-        hooks::Hooks::new(spawner.clone(), client, storage_pool.clone())
+        hooks::Hooks::new(spawner.clone(), client, seeds, storage_pool.clone())
     };
     let sh = server::Server::new(spawner.clone(), peer_id, handle.clone(), hooks);
     let ssh_tasks = sh.serve(&socket, thrussh_config).await;
