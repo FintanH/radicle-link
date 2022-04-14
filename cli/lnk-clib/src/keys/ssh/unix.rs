@@ -3,9 +3,9 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, os::unix::net::UnixStream, sync::Arc};
 
-use lnk_thrussh_agent::{client::tokio::UnixStream, Constraint};
+use lnk_thrussh_agent::Constraint;
 use serde::{de::DeserializeOwned, Serialize};
 
 use librad::{
@@ -30,6 +30,27 @@ use librad::{
 use crate::{keys, runtime};
 
 use super::{with_socket, SshAuthSock};
+
+pub async fn async_signer(
+    profile: &Profile,
+    sock: SshAuthSock,
+) -> Result<BoxedSigner, super::Error> {
+    let storage = ReadOnly::open(profile.paths())?;
+    let peer_id = storage.peer_id();
+    let pk = (*peer_id.as_public_key()).into();
+    let agent = with_socket(SshAgent::new(pk), sock);
+    tracing::trace!(peer=%peer_id, "obtaining signer for peer");
+    let keys = ssh::list_keys::<UnixStream>(&agent).await?;
+    if keys.contains(&pk) {
+        let signer = agent.connect::<UnixStream>().await?;
+        Ok(SomeSigner {
+            signer: Arc::new(signer),
+        }
+        .into())
+    } else {
+        Err(super::Error::NoSuchKey(*peer_id))
+    }
+}
 
 /// Get the signing key associated with this `profile`.
 /// See [`SshAuthSock`] for how the `ssh-agent` will be connected to. Use
@@ -79,6 +100,26 @@ where
         key.secret_key.into(),
         constraints,
     ))?;
+    Ok(())
+}
+
+pub async fn async_add_signer<C>(
+    profile: &Profile,
+    sock: SshAuthSock,
+    crypto: C,
+    constraints: &[Constraint],
+) -> Result<(), super::Error>
+where
+    C: Crypto,
+    C::Error: fmt::Debug + fmt::Display + Send + Sync + 'static,
+    C::SecretBox: Serialize + DeserializeOwned,
+{
+    let store = keys::file_storage(profile, crypto);
+    let key = store
+        .get_key()
+        .map_err(|err| super::Error::GetKey(err.into()))?;
+    let agent = with_socket(SshAgent::new(key.public_key.into()), sock);
+    ssh::add_key::<UnixStream>(&agent, key.secret_key.into(), constraints).await?;
     Ok(())
 }
 

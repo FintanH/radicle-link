@@ -41,6 +41,28 @@ where
     res
 }
 
+pub async fn with_async_ssh_agent<F, O, T>(callback: F) -> O::Output
+where
+    F: FnOnce(SshAuthSock) -> O,
+    O: futures::Future<Output = anyhow::Result<T>>,
+{
+    let sock = ssh_auth_sock();
+    let path = match &*sock {
+        SshAuthSock::Uds(path) => path,
+        _ => unreachable!(),
+    };
+    let agent = tokio::process::Command::new("ssh-agent")
+        .arg("-a")
+        .arg(path)
+        .output()
+        .await?;
+    anyhow::ensure!(agent.status.success(), agent.status);
+    let pid = agent_pid(&agent.stdout)?;
+    let res = callback((*sock).clone()).await;
+    kill_agent_pid(pid)?;
+    res
+}
+
 /// Kill the ssh-agent running on the given PID.
 fn kill_agent_pid(pid: &str) -> anyhow::Result<()> {
     debug!(pid = %pid, "killing ssh-agent");

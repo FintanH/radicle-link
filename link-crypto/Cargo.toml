@@ -34,12 +34,17 @@ path = "../git-ext"
 features = ["serde", "minicbor"]
 
 [dependencies.radicle-keystore]
-version = "0.2"
+path = "../../radicle-keystore"
+# version = "0.2"
 features = [ "ssh-agent" ]
 
 [dependencies.serde]
 version = "1.0"
 features = ["derive"]
+
+[dependencies.tokio]
+version = "1.17"
+features = ["rt"]
 
 [dependencies.zeroize]
 version = "1.1"

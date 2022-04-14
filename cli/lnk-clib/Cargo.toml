@@ -27,7 +27,8 @@ tracing = "0.1"
 path = "../../librad"
 
 [dependencies.lnk-thrussh-agent]
-version = "0.1.0"
+path = "../../../thrussh/thrussh-agent"
+# version = "0.1.0"
 features = [ "tokio-agent" ]
 
 [dependencies.minicbor]

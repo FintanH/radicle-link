@@ -29,3 +29,7 @@ members = [
 exclude = [
   "bins",
 ]
+
+[patch.crates-io]
+lnk-thrussh-encoding = { path = "../thrussh/thrussh-encoding" }
+lnk-cryptovec = { path = "../thrussh/cryptovec" }
