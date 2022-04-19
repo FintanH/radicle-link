@@ -67,7 +67,7 @@ async fn async_agent_signature() -> anyhow::Result<()> {
     key_store.put_key(key.clone())?;
     let _ = Storage::open(profile.paths(), key)?;
 
-    let sig = tokio::task::spawn(async move {
+    let sig = tokio::task::spawn_blocking(move || {
         with_ssh_agent(|sock| {
             ssh::add_signer(&profile, sock.clone(), pass, &[])?;
             let signer = ssh::signer(&profile, sock)?;
