@@ -67,15 +67,16 @@ async fn async_agent_signature() -> anyhow::Result<()> {
     key_store.put_key(key.clone())?;
     let _ = Storage::open(profile.paths(), key)?;
 
-    let signer = with_async_ssh_agent(|sock| async {
-        ssh::async_add_signer(&profile, sock.clone(), pass, &[]).await?;
-        Ok(ssh::async_signer(&profile, sock).await?)
+    let sig = tokio::task::spawn(async move {
+        with_ssh_agent(|sock| {
+            ssh::add_signer(&profile, sock.clone(), pass, &[])?;
+            let signer = ssh::signer(&profile, sock)?;
+            Ok(signer.sign_blocking(b"secret message")?)
+        })
+        .unwrap()
     })
-    .await?;
-
-    let sig = tokio::task::spawn_blocking(move || signer.sign_blocking(b"secret message").unwrap())
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert!(pk.verify(&sig.into(), b"secret message"));
 
