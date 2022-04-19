@@ -3,9 +3,9 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{fmt, os::unix::net::UnixStream, sync::Arc};
+use std::{fmt, sync::Arc};
 
-use lnk_thrussh_agent::Constraint;
+use lnk_thrussh_agent::{client::tokio::UnixStream, Constraint};
 use serde::{de::DeserializeOwned, Serialize};
 
 use librad::{
