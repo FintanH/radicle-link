@@ -73,7 +73,7 @@ async fn async_agent_signature() -> anyhow::Result<()> {
     })
     .await?;
 
-    let sig = tokio::spawn(async move { signer.sign_blocking(b"secret message").unwrap() })
+    let sig = tokio::task::spawn_blocking(move || signer.sign_blocking(b"secret message").unwrap())
         .await
         .unwrap();
 
