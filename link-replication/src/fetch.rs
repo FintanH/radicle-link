@@ -14,6 +14,7 @@ use radicle_data::NonEmptyVec;
 use crate::{
     error,
     internal::{self, Layout, UpdateTips},
+    peek,
     refdb,
     refs,
     sigrefs,
@@ -23,12 +24,14 @@ use crate::{
     Negotiation,
     Odb,
     Policy,
-    RefPrefix,
     RefScan,
     Refdb,
     Update,
     WantsHaves,
 };
+
+mod transitive;
+pub use transitive::Transitive;
 
 #[derive(Debug)]
 pub struct Fetch<Oid> {
@@ -37,22 +40,18 @@ pub struct Fetch<Oid> {
     /// The peer being fetched from.
     pub remote_id: PeerId,
     /// The stack of signed refs describing which refs we'll ask for.
-    pub signed_refs: sigrefs::Combined<Oid>,
+    pub signed_refs: sigrefs::Flattened<Oid>,
     /// Maximum number of bytes the fetched packfile can have.
     pub limit: u64,
 }
 
 impl<T: AsRef<oid>> Negotiation for Fetch<T> {
     fn ls_refs(&self) -> Option<LsRefs> {
-        let prefixes = self.signed_refs.remotes.iter().filter_map(|id| {
-            (id != &self.remote_id).then(|| {
-                RefPrefix::from(refs::scoped(
-                    id,
-                    &self.remote_id,
-                    refs::Owned::refs_rad_signed_refs(),
-                ))
-            })
-        });
+        let prefixes = self
+            .signed_refs
+            .remotes
+            .iter()
+            .flat_map(|id| peek::ref_prefixes(id, &self.remote_id));
         NonEmptyVec::from_vec(prefixes.collect()).map(LsRefs::from)
     }
 
@@ -65,7 +64,12 @@ impl<T: AsRef<oid>> Negotiation for Fetch<T> {
         match parsed {
             refs::Parsed {
                 remote: Some(remote_id),
-                inner: Left(refs::parsed::Rad::SignedRefs),
+                inner:
+                    Left(
+                        refs::parsed::Rad::Id
+                        | refs::parsed::Rad::SignedRefs
+                        | refs::parsed::Rad::Ids { .. },
+                    ),
             } if self.signed_refs.remotes.contains(&remote_id) => {
                 Some(FilteredRef::new(tip, &remote_id, parsed))
             },
@@ -129,6 +133,7 @@ impl<T: AsRef<oid>> UpdateTips for Fetch<T> {
             let sz = self.signed_refs.refs.values().map(|rs| rs.refs.len()).sum();
             Vec::with_capacity(sz)
         };
+
         for (remote_id, refs) in &self.signed_refs.refs {
             let mut signed = HashSet::with_capacity(refs.refs.len());
             for (name, tip) in refs {
@@ -172,11 +177,8 @@ impl<T: AsRef<oid>> UpdateTips for Fetch<T> {
 }
 
 impl<T> Layout for Fetch<T> {
-    // [`Fetch`] may request only a part of the refs tree, so no layout error
-    // can be determined from the advertised refs alone.
-    //
-    // XXX: We could reject if only a subset of the signed refs are present. This
-    // would interact with fetchspecs, so requires runtime configuration.
+    // [`Fetch`] only requests additional sigrefs, so there are no meaningful
+    // layout errors we could check for.
     fn pre_validate(&self, _: &[FilteredRef<Self>]) -> Result<(), error::Layout> {
         Ok(())
     }

@@ -134,7 +134,7 @@ where
         &self.idts
     }
 
-    fn id_tips_mut(&mut self) -> &mut IdentityTips {
+    pub fn id_tips_mut(&mut self) -> &mut IdentityTips {
         &mut self.idts
     }
 
@@ -146,7 +146,7 @@ where
         &mut self.sigs
     }
 
-    fn delegation_tips_mut(&mut self) -> &mut DelegationTips<Urn> {
+    pub fn delegation_tips_mut(&mut self) -> &mut DelegationTips<Urn> {
         &mut self.dels
     }
 
@@ -271,6 +271,7 @@ where
 
     type TrackError = T::TrackError;
     type TrackedError = T::TrackedError;
+    type PolicyError = T::PolicyError;
 
     fn track<I>(&mut self, iter: I) -> Result<Self::Updated, Self::TrackError>
     where
