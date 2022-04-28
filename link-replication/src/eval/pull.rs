@@ -3,7 +3,13 @@
 // This file is part of radicle-link, distributed under the GPLv3 with Radicle
 // Linking Exception. For full terms see the included LICENSE file.
 
-use std::{collections::BTreeSet, fmt::Debug, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
+    marker::PhantomData,
+};
+
+use itertools::Itertools;
 
 use super::rad;
 use crate::{
@@ -15,6 +21,7 @@ use crate::{
     sigrefs::{self, Refs},
     state::FetchState,
     validation,
+    DataPolicy,
     Error,
     FetchLimit,
     Identities,
@@ -31,6 +38,7 @@ use crate::{
     SymrefTarget,
     Tracking,
     Update,
+    VerifiedIdentity,
 };
 
 pub(crate) fn pull<U, C>(
@@ -55,27 +63,93 @@ where
 {
     use either::Either::*;
 
+    let scx = state.as_shim(cx);
+    let local_id = *LocalPeer::id(&scx);
+    let delegates = VerifiedIdentity::delegate_ids(&anchor);
+    let delegates_sans_local = delegates
+        .iter()
+        .filter(|id| *id != &local_id)
+        .copied()
+        .collect();
+
+    let tracked: BTreeMap<PeerId, peek::FetchSpec> = Tracking::tracked(&scx)?
+        .filter_map_ok(|(id, policy)| {
+            if !delegates.contains(&id) {
+                Some((
+                    id,
+                    peek::FetchSpec {
+                        is_delegate: false,
+                        policy,
+                    },
+                ))
+            } else {
+                None
+            }
+        })
+        .chain(delegates.iter().map(|id| {
+            Ok((
+                *id,
+                peek::FetchSpec {
+                    is_delegate: true,
+                    policy: DataPolicy::Allow,
+                },
+            ))
+        }))
+        .collect::<Result<_, _>>()?;
+
     info!("fetching verification refs");
-    let peek = peek::for_fetch(&state.as_shim(cx), limit.peek, &anchor, remote_id)?;
-    debug!(?peek);
-    state.step(cx, &peek)?;
-    let peek::ForFetch {
+    let peek = peek::ForFetch {
         local_id,
         remote_id,
-        delegates,
-        mut tracked,
-        limit: _,
-    } = peek;
+        tracked,
+        limit: limit.peek,
+    };
+    debug!(?peek);
+    state.step(cx, &peek)?;
 
-    let delegates: BTreeSet<PeerId> = delegates
-        .into_iter()
-        .filter(move |id| id != &local_id)
-        .collect();
+    info!("loading sigrefs");
+    let signed_refs = sigrefs::combined(
+        &state.as_shim(cx),
+        sigrefs::Select {
+            must: &delegates_sans_local,
+            may: &peek
+                .tracked
+                .keys()
+                .filter(|id| !delegates.contains(id))
+                .copied()
+                .collect(),
+            cutoff: 2,
+        },
+    )?;
+    debug!(?signed_refs);
+
+    let mut transitive: BTreeMap<PeerId, DataPolicy> = BTreeMap::new();
+    for (id, spec) in &peek.tracked {
+        if let Some(sigrefs) = signed_refs.get(id) {
+            for remote_id in &sigrefs.remotes {
+                if remote_id == &local_id
+                    || delegates.contains(remote_id)
+                    || peek.tracked.contains_key(remote_id)
+                {
+                    continue;
+                }
+                transitive
+                    .entry(*remote_id)
+                    .and_modify(|v| {
+                        if !spec.is_delegate && spec.policy < *v {
+                            *v = spec.policy;
+                        }
+                    })
+                    .or_insert(spec.policy);
+            }
+        }
+    }
+    let mut tracked = peek.tracked.into_keys().collect::<BTreeSet<_>>();
 
     let requires_confirmation = {
         info!("setting up local rad/ hierarchy");
         let shim = state.as_shim(cx);
-        match ids::newest(&shim, &delegates)? {
+        match ids::newest(&shim, &delegates_sans_local)? {
             None => false,
             Some((their_id, theirs)) => match rad::newer(&shim, Some(anchor), theirs)? {
                 Err(error::ConfirmationRequired) => true,
@@ -130,20 +204,7 @@ where
         Refdb::update(cx, tips)?
     };
 
-    info!("loading combined sigrefs");
-    let signed_refs = {
-        let mut sr = sigrefs::combined(
-            &state.as_shim(cx),
-            sigrefs::Select {
-                must: &delegates,
-                may: &tracked,
-                cutoff: 2,
-            },
-        )?;
-        sr.remotes.retain(|id| id != &local_id);
-        sr
-    };
-
+    let signed_refs = signed_refs.flattened();
     // Clear sigref tips so far. Fetch will ask the remote to advertise sigrefs
     // from the transitive trackings, so we can inspect the state afterwards to
     // see if we got any.
@@ -165,27 +226,32 @@ where
         info!("transitively tracked signed refs found");
         let selector = sigrefs::Select {
             must: &Default::default(),
-            // Optional, alt folks may have screwed their remotes
             may: &state
                 .sigref_tips()
                 .keys()
+                .filter(|id| matches!(transitive.get(id), Some(DataPolicy::Allow)))
                 .copied()
-                // should not be possible, but better be sure
-                .filter(|id| id != &local_id)
                 .collect(),
             cutoff: 0,
         };
         let trans_sigrefs = sigrefs::combined(&state.as_shim(cx), selector)?;
-        let mut trans_fetch = fetch::Fetch {
+        debug!(?trans_sigrefs);
+        let trans_fetch = fetch::Transitive {
             local_id,
             remote_id,
             signed_refs: trans_sigrefs,
+            denied: transitive
+                .into_iter()
+                .filter_map(|(id, policy)| matches!(policy, DataPolicy::Deny).then(|| id))
+                .collect(),
             limit: limit.data,
         };
         info!("fetching transitively tracked data");
         debug!(?trans_fetch);
         state.step(cx, &trans_fetch)?;
-        signed_refs.refs.append(&mut trans_fetch.signed_refs.refs);
+        signed_refs
+            .refs
+            .append(&mut trans_fetch.signed_refs.flattened().refs);
     }
 
     info!("updating tips");
@@ -198,6 +264,7 @@ where
     SignedRefs::update(cx)?;
 
     let mut warnings = Vec::new();
+    debug!(?signed_refs);
     info!("validating signed trees");
     for (peer, refs) in &signed_refs.refs {
         let ws = validation::validate::<U, _, _, _>(&*cx, peer, refs)?;
@@ -212,6 +279,9 @@ where
 
     info!("validating remote trees");
     for peer in &signed_refs.remotes {
+        if peer == &local_id {
+            continue;
+        }
         debug!("remote {}", peer);
         let refs = SignedRefs::load(cx, peer, 0)
             .map(|s| s.map(|Sigrefs { at, refs, .. }| Refs { at, refs }))?;

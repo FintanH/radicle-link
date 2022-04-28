@@ -271,6 +271,7 @@ where
 
     type TrackError = T::TrackError;
     type TrackedError = T::TrackedError;
+    type PolicyError = T::PolicyError;
 
     fn track<I>(&mut self, iter: I) -> Result<Self::Updated, Self::TrackError>
     where
