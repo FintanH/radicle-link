@@ -59,13 +59,13 @@ pub mod error {
         #[error("missing {0}")]
         Missing(&'static str),
 
-        #[error("invalid namespace identifier: {0}")]
+        #[error("invalid namespace identifier: {0}, expected `rad:<protocol>:<id>`")]
         InvalidNID(String),
 
-        #[error("invalid protocol: {0}")]
+        #[error("invalid protocol: {0}, expected `rad:<protocol>:<id>`")]
         InvalidProto(String),
 
-        #[error("invalid id")]
+        #[error("invalid id, expected `rad:<protocol>:<id>`")]
         InvalidId(#[source] DecodeId<E>),
 
         #[error(transparent)]

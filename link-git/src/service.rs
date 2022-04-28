@@ -46,7 +46,7 @@ impl From<Service> for GitService {
 pub enum ParseService<E> {
     #[error("the exec str must be in the form <service> <urn>")]
     Format,
-    #[error("unable to parse namespace")]
+    #[error("unable to parse URN identifier: {0}")]
     Namespace(#[source] E),
     #[error("unknown service {0}")]
     UnknownService(String),
