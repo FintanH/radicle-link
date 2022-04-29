@@ -169,7 +169,7 @@ impl<'a> IntoIterator for &'a Seeds {
     type IntoIter = std::slice::Iter<'a, Seed<Vec<SocketAddr>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.as_slice().into_iter()
+        self.0.as_slice().iter()
     }
 }
 
