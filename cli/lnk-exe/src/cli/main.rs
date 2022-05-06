@@ -15,5 +15,8 @@ pub fn main() -> anyhow::Result<()> {
             lnk_identities::cli::main(args, global.lnk_profile, global.lnk_ssh_auth_sock)
         },
         args::Command::Profile(args) => lnk_profile::cli::main(args, global.lnk_ssh_auth_sock),
+        args::Command::Sync(args) => {
+            lnk_sync::cli::main(args, global.lnk_profile, global.lnk_ssh_auth_sock)
+        },
     }
 }
