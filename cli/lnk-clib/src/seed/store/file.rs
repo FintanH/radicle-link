@@ -24,6 +24,12 @@ pub struct FileStore<T> {
 impl<T> FileStore<T> {
     pub fn new(path: impl AsRef<Path>) -> Result<Self, io::Error> {
         let path = path.as_ref();
+        if path.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "seed storage expected to be a file but found a directory",
+            ));
+        }
         if !path.exists() {
             fs::File::create(path)?;
         }
