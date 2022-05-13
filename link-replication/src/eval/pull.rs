@@ -174,6 +174,8 @@ where
     let newly_tracked = Tracking::track(cx, state.trackings_mut().drain(..))?
         .into_iter()
         .collect::<Vec<_>>();
+    // TODO(finto): Do we still need this? `newly_tracked` is returned below and
+    // `tracked` is never used again.
     tracked.extend(newly_tracked.iter().filter_map(|x| x.as_ref().left()));
 
     // Update identity tips already, we will only be looking at sigrefs from now

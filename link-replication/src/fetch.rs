@@ -14,6 +14,7 @@ use radicle_data::NonEmptyVec;
 use crate::{
     error,
     internal::{self, Layout, UpdateTips},
+    peek,
     refdb,
     refs,
     sigrefs,
@@ -47,13 +48,11 @@ pub struct Fetch<Oid> {
 
 impl<T: AsRef<oid>> Negotiation for Fetch<T> {
     fn ls_refs(&self) -> Option<LsRefs> {
-        let prefixes = self.signed_refs.remotes.iter().map(|id| {
-            RefPrefix::from(refs::scoped(
-                id,
-                &self.remote_id,
-                refs::Owned::refs_rad_signed_refs(),
-            ))
-        });
+        let prefixes = self
+            .signed_refs
+            .remotes
+            .iter()
+            .flat_map(|id| peek::required_refs(&id, &self.remote_id).map(RefPrefix::from));
         NonEmptyVec::from_vec(prefixes.collect()).map(LsRefs::from)
     }
 
@@ -66,7 +65,7 @@ impl<T: AsRef<oid>> Negotiation for Fetch<T> {
         match parsed {
             refs::Parsed {
                 remote: Some(remote_id),
-                inner: Left(refs::parsed::Rad::SignedRefs),
+                inner: Left(refs::parsed::Rad::Id | refs::parsed::Rad::SignedRefs),
             } if self.signed_refs.remotes.contains(&remote_id) => {
                 Some(FilteredRef::new(tip, &remote_id, parsed))
             },
@@ -84,6 +83,9 @@ impl<T: AsRef<oid>> Negotiation for Fetch<T> {
         R: Refdb + Odb,
     {
         let mut bld = BuildWantsHaves::default();
+
+        // TODO(finto): not sure if this is needed
+        bld.add(db, refs)?;
 
         for (remote_id, refs) in &self.signed_refs.refs {
             for (name, tip) in refs {
