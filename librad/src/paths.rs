@@ -26,6 +26,7 @@ pub struct Paths {
     cob_cache_dir: PathBuf,
     socket_dir: PathBuf,
     seeds_file: PathBuf,
+    hooks_dir: PathBuf,
 }
 
 impl Paths {
@@ -38,14 +39,17 @@ impl Paths {
         let config_dir = proj.config_dir().join(profile_id);
         let data_dir = proj.data_dir().join(profile_id);
         let cache_dir = proj.cache_dir().join(profile_id);
+        let git_dir = data_dir.join("git");
+        let hooks_dir = git_dir.join("hooks");
 
         Self {
             keys_dir: config_dir.join("keys"),
-            git_dir: data_dir.join("git"),
+            git_dir,
             git_includes_dir: config_dir.join("git-includes"),
             cob_cache_dir: cache_dir.join("cob-cache"),
             socket_dir: socket_dir()?,
             seeds_file: config_dir.join("seeds"),
+            hooks_dir,
         }
         .init()
     }
@@ -53,13 +57,17 @@ impl Paths {
     /// All paths are contained in the given directory.
     pub fn from_root(root: impl AsRef<Path>) -> Result<Self, io::Error> {
         let root = root.as_ref();
+        let git_dir = root.join("git");
+        let hooks_dir = git_dir.join("hooks");
+
         Self {
             keys_dir: root.join("keys"),
-            git_dir: root.join("git"),
+            git_dir,
             git_includes_dir: root.join("git-includes"),
             cob_cache_dir: root.join("cob-cache"),
             socket_dir: socket_dir()?,
             seeds_file: root.join("seeds"),
+            hooks_dir,
         }
         .init()
     }
@@ -80,6 +88,10 @@ impl Paths {
         &self.cob_cache_dir
     }
 
+    pub fn hooks_dir(&self) -> &Path {
+        &self.hooks_dir
+    }
+
     pub fn all_dirs(&self) -> impl Iterator<Item = &Path> {
         // Nb. this pattern match is here to keep the map consistent with the
         // struct fields
@@ -88,6 +100,7 @@ impl Paths {
             git_dir,
             git_includes_dir,
             cob_cache_dir,
+            hooks_dir,
             socket_dir: _,
             seeds_file: _,
         } = self;
@@ -97,6 +110,7 @@ impl Paths {
             git_dir.as_path(),
             git_includes_dir.as_path(),
             cob_cache_dir.as_path(),
+            hooks_dir.as_path(),
         ]
         .into_iter()
     }
