@@ -147,7 +147,10 @@ pub struct Project<'a> {
 }
 
 impl<'a> Project<'a> {
-    pub fn new(dev: Device<'a>) -> anyhow::Result<Self> {
+    pub fn new(dev: Device<'a>, others: impl IntoIterator<Item = Person>) -> anyhow::Result<Self> {
+        let del = IndirectDelegation::try_from_iter(
+            std::iter::once(Right(dev.cur.clone())).chain(others.into_iter().map(Right)),
+        )?;
         let cur = dev.git.as_project().create(
             payload::Project {
                 name: "haskell-emoji".into(),
@@ -155,7 +158,7 @@ impl<'a> Project<'a> {
                 default_branch: Some("\u{1F32F}".into()),
             }
             .into(),
-            IndirectDelegation::try_from_iter(Some(Right(dev.cur.clone())))?,
+            del,
             dev.key,
         )?;
 

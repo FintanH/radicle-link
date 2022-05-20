@@ -48,10 +48,12 @@ proptest! {
             ..id
         };
 
-        assert_matches!(
-            Verifying::from(id).quorum(),
-            Err(error::Verify::Quorum)
-        )
+        if id.doc.replaces.is_some() {
+            assert_matches!(
+                Verifying::from(id).quorum(),
+                Err(error::Verify::Quorum)
+            )
+        }
     }
 
     #[test]

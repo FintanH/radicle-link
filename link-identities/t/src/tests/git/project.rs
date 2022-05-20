@@ -47,13 +47,26 @@ fn create() -> anyhow::Result<()> {
     let repo = tmp::repo()?;
     {
         let dylan = Device::new(&*DYLAN, Identities::from(&*repo))?;
-        Project::new(dylan.clone())?.assert_verifies(|urn| {
+        Project::new(dylan.clone(), None)?.assert_verifies(|urn| {
             if urn == dylan.current().urn() {
                 Ok(*dylan.current().content_id)
             } else {
                 unreachable!()
             }
         })
+    }
+}
+
+#[test]
+fn create_multi_delegate() -> anyhow::Result<()> {
+    let repo = tmp::repo()?;
+    {
+        let dylan = Device::new(&*DYLAN, Identities::from(&*repo))?;
+        let cheyenne = Device::new(&*CHEYENNE_DESKTOP, Identities::from(&*repo))?;
+        let heads = current_heads_from(vec![&cheyenne, &dylan]);
+        Project::new(dylan.clone(), Some(cheyenne.current().clone()))?
+            .assert_verifies(lookup(&heads))?;
+        Ok(())
     }
 }
 
@@ -72,7 +85,7 @@ fn update() -> anyhow::Result<()> {
                 Right(cheyenne.current().clone()),
                 Right(dylan.current().clone()),
             ])?;
-            Project::new(cheyenne)?.update(None, update)
+            Project::new(cheyenne, None)?.update(None, update)
         }?;
         project.assert_no_quorum()?;
 
@@ -97,7 +110,7 @@ fn update_payload() -> anyhow::Result<()> {
                 description: None,
                 default_branch: None,
             });
-            Project::new(cheyenne)?.update(update, None)
+            Project::new(cheyenne, None)?.update(update, None)
         }?;
         project.assert_verifies(lookup(&heads))
     }
@@ -128,7 +141,7 @@ fn revoke() -> anyhow::Result<()> {
                 Right(cheyenne.current().clone()),
                 Right(dylan.current().clone()),
             ])?;
-            Project::new(cheyenne.clone())?.update(None, update)
+            Project::new(cheyenne.clone(), None)?.update(None, update)
         }?;
         cheyennes.assert_no_quorum()?;
 
@@ -188,7 +201,7 @@ fn revoke_indirect() -> anyhow::Result<()> {
                 Right(cheyenne_desktop.current().clone()),
                 Right(dylan.current().clone()),
             ])?;
-            Project::new(cheyenne_desktop.clone())?.update(None, update)
+            Project::new(cheyenne_desktop.clone(), None)?.update(None, update)
         }?;
         let dylan_project = Project::create_from(dylan.clone(), &cheyenne_project)?;
 
@@ -249,7 +262,7 @@ fn double_vote() -> anyhow::Result<()> {
                 Right(cheyenne_desktop.current().clone()),
                 Right(dylan.current().clone()),
             ])?;
-            Project::new(cheyenne_desktop.clone())?.update(None, update)
+            Project::new(cheyenne_desktop.clone(), None)?.update(None, update)
         }?;
         let dylan_project = Project::create_from(dylan.clone(), &cheyenne_project)?;
 
@@ -314,7 +327,7 @@ fn fork() -> anyhow::Result<()> {
                 Right(cheyenne.current().clone()),
                 Right(dylan.current().clone()),
             ])?;
-            Project::new(cheyenne.clone())?.update(None, update)
+            Project::new(cheyenne.clone(), None)?.update(None, update)
         }?;
         let dylan_project = Project::create_from(dylan.clone(), &cheyenne_project)?;
         dylan_project.assert_verifies(lookup(&heads))?;

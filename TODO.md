@@ -60,7 +60,7 @@
 ## Identities
 
 * [ ] Simplify verification by requiring history to be linear
-* [ ] Simplify initialising a multisig identity
+* [x] Simplify initialising a multisig identity
 
   > Verification may allow the initial revision to have only one signature,
   > regardless of the number of delegations.

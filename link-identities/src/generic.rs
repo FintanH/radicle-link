@@ -330,7 +330,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     /// Convenience for when [`Signed`] is not interesting.
     pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
-        T: Delegations,
+        T: Delegations + Replaces<Revision = R>,
         T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Debug + Display + AsRef<[u8]>,
@@ -366,7 +366,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Signed> {
     /// [`Delegations::quorum_threshold`].
     pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
-        T: Delegations,
+        T: Delegations + Replaces<Revision = R>,
         T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Debug + Display,
@@ -378,7 +378,10 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Signed> {
             .map_err(error::Verify::eligibility)?
             .len();
 
-        if eligible > 0 && eligible > self.doc.quorum_threshold() {
+        let passes_root_quorum = eligible == 1 && self.doc.replaces().is_none();
+        let passes_quorum = eligible > 0 && eligible > self.doc.quorum_threshold();
+
+        if passes_root_quorum || passes_quorum {
             Ok(self.coerce())
         } else {
             Err(error::Verify::Quorum)
