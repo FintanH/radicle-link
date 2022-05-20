@@ -198,8 +198,13 @@ The identity carrier passes 1., and is signed by at least one key specified in
 the delegations of the document.
 . *Quorum*
 +
-The identity carrier passes 2., and is signed by a quorum of the keys specified
-in the link:#delegations[delegations] of the document (`Q > D/2`).
+The identity carrier passes 2., and:
+
+    * The document does not refer to a previous revision, no previous
+      revision is known, and their is a single signature from the
+      link:#delegations[delegations].
+    * *Or* the document is signed by a quorum of the keys specified in the
+      link:#delegations[delegations] of the document (`Q > D/2`).
 . *Verified*
 +
 --

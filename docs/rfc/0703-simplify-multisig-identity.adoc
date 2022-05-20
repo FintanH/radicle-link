@@ -1,0 +1,53 @@
+= RFC: Simplify Multisig Identity Creation
+Fintan Halpenny <fintan.halpenny@gmail.com>
++
+:revdate: 2022-05-20
+:revremark: draft
+:toc: preamble
+:stem:
+
+* Author: {author_1}
+* Date: {revdate}
+* Status: {revremark}
+
+== Motivation
+
+The current situation for creating an identity document allows
+multiple delegates to be specified up-front, but the document will not
+be verified until all those delegates reach a quorum. Thus, a new
+identity will only be considered a verified document if and only if
+it is created with a single delegate where the local operator is the
+delegate themselves.
+
+To allow an identity to be considered verified upon creation with
+multiple delegates, it is necessary to ammend our definition of an
+initial quorum.
+
+== Terminology and Conventions
+
+The key words "`MUST`", "`MUST NOT`", "`REQUIRED`", "`SHALL`", "`SHALL NOT`",
+"`SHOULD`", "`SHOULD NOT`", "`RECOMMENDED`", "`NOT RECOMMENDED`", "`MAY`", and
+"`OPTIONAL`" in this document are to be interpreted as described in <<RFC2119>>
+and <<RFC8174>> when, and only when, they appear in all capitals, as
+shown here.
+
+== New Quruom Rules
+
+To allow for the identity to be a verified document with multiple
+delegates upon creation, an extra rule must be added when checking the
+quorum. When checking the quorum of the identity and the revision is
+the root revision, then a quourum is considred reach iff there is one
+eligible signature from a delegate.
+
+More formally:
+
+[text]
+---
+The identity carrier passes the signature check, and:
+
+* The document does not refer to a previous revision, no previous
+  revision is known, and their is a single signature from the
+  delegations.
+* *Or* the document is signed by a quorum of the keys specified in the
+  delegations of the document (`Q > D/2`).
+---
