@@ -220,7 +220,7 @@ impl<P: Process + Send + Sync + 'static> Hook<P> {
     where
         D: Display + Send + Sync + 'static,
     {
-        let (sx, mut rx) = mpsc::channel::<HookMessage<D>>(config.buffer);
+        let (sx, mut rx) = mpsc::channel::<HookMessage<D>>(config.buffer.size);
         let routine = async move {
             tracing::trace!("waiting for notification");
             while let Some(msg) = rx.recv().await {
@@ -229,7 +229,7 @@ impl<P: Process + Send + Sync + 'static> Hook<P> {
                         if let Err(err) = self.write(&[EOT]).await {
                             tracing::warn!(err = %err, "failed to write EOT to hook");
                         }
-                        if let Err(err) = self.wait_or_kill(config.timeout).await {
+                        if let Err(err) = self.wait_or_kill(config.timeout.duration).await {
                             tracing::warn!(err = %err, "failed to terminate hook");
                         }
                         return self.path;

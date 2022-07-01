@@ -4,7 +4,7 @@
 use std::{fs, io, path::Path};
 
 pub use link_hooks::{
-    hook::{self, Hook, Hooks, Notification, Process as _},
+    hook::{self, config, Config, Hook, Hooks, Notification, Process as _},
     Data,
     Track,
 };
@@ -33,7 +33,7 @@ pub const TRACK: &str = "tracking_changed";
 ///
 /// If the [`Notification`] is a [`Notification::Track`] then it will
 /// be sent to all the `tracking_changed` hooks.
-pub async fn hooks(paths: &Paths, config: hook::Config) -> io::Result<Hooks<Child>> {
+pub async fn hooks(paths: &Paths, config: Config) -> io::Result<Hooks<Child>> {
     let hooks_dir = paths.hooks_dir();
     let data_hooks = load(hooks_dir.join(DATA)).await?;
     let track_hooks = load(hooks_dir.join(TRACK)).await?;
