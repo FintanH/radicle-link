@@ -19,6 +19,7 @@ use crate::{
     api,
     args::Args,
     cfg::{self, Cfg, RunMode},
+    hooks::Hooks,
     logging,
     metrics::graphite,
     protocol,
@@ -47,6 +48,10 @@ pub async fn run() -> anyhow::Result<()> {
         .spawn(protocol::routine(peer.clone(), cfg.disco, shutdown_rx))
         .fuse();
     coalesced.push(peer_task);
+
+    let (hooks_sx, hooks) = Hooks::new(cfg.profile.paths(), cfg.hooks).await?;
+    let hooks_task = spawner.spawn(hooks.run()).fuse();
+    coalesced.push(hooks_task);
 
     if let Some(cfg::Metrics::Graphite(addr)) = cfg.metrics {
         let graphite_task = spawner.spawn(graphite::routine(peer.clone(), addr)).fuse();

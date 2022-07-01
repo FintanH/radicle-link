@@ -20,7 +20,7 @@ use tracing::warn;
 
 use librad::{
     crypto::{BoxedSigner, IntoSecretKeyError},
-    git::storage,
+    git::{hooks, storage},
     keystore::SecretKeyExt as _,
     net,
     net::{discovery, peer::Config as PeerConfig, protocol::membership},
@@ -97,6 +97,7 @@ pub struct Cfg<Disco, Signer, Auth> {
     pub tracker: Option<Tracker>,
     pub run_mode: RunMode,
     pub profile: Profile,
+    pub hooks: hooks::Config,
 }
 
 impl Cfg<discovery::Static, BoxedSigner, request_pull::State> {
@@ -180,6 +181,13 @@ impl Cfg<discovery::Static, BoxedSigner, request_pull::State> {
             tracker.clone(),
         );
 
+        let hooks = hooks::Config {
+            hook: hooks::config::Hook {
+                buffer: args.hooks.hook_buffer,
+                timeout: args.hooks.hook_timeout,
+            },
+        };
+
         Ok(Self {
             disco,
             metrics,
@@ -199,6 +207,7 @@ impl Cfg<discovery::Static, BoxedSigner, request_pull::State> {
             },
             tracker,
             profile,
+            hooks,
             run_mode,
         })
     }

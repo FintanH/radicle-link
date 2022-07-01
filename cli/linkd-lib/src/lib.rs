@@ -8,6 +8,7 @@ pub mod args;
 mod cfg;
 
 pub mod api;
+pub mod hooks;
 mod logging;
 mod metrics;
 pub mod node;

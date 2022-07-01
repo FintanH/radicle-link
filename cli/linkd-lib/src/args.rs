@@ -12,7 +12,7 @@ use std::{fmt, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 use clap::Parser;
 
 use librad::{
-    git::Urn,
+    git::{hooks, Urn},
     net::Network,
     profile::{LnkHome, ProfileId},
     PeerId,
@@ -79,6 +79,9 @@ pub struct Args {
     /// shutdown.
     #[clap(long)]
     pub linger_timeout: Option<LingerTimeout>,
+
+    #[clap(flatten)]
+    pub hooks: HooksArgs,
 }
 
 #[derive(Debug, Eq, PartialEq, Parser)]
@@ -400,4 +403,12 @@ impl Default for RequestPullStorage {
             pool_size: num_cpus::get_physical(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Parser)]
+pub struct HooksArgs {
+    #[clap(long, default_value_t)]
+    pub hook_buffer: hooks::config::Buffer,
+    #[clap(long, default_value_t)]
+    pub hook_timeout: hooks::config::Timeout,
 }
