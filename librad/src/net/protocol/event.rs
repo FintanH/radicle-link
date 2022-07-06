@@ -100,6 +100,7 @@ pub enum Upstream {
     Gossip(Box<upstream::Gossip<SocketAddr, gossip::Payload>>),
     Membership(membership::Transition<SocketAddr>),
     Caches(upstream::Caches),
+    Replication(upstream::Replication),
 }
 
 pub mod upstream {
@@ -107,10 +108,16 @@ pub mod upstream {
 
     use std::time::Duration;
 
+    use either::Either;
     use futures::{pin_mut, FutureExt as _, StreamExt as _};
+    use git_ref_format::RefString;
+    use identities::git::Urn;
     use thiserror::Error;
 
-    use crate::net::protocol::{PeerInfo, RecvError};
+    use crate::{
+        git_ext as ext,
+        net::protocol::{PeerInfo, RecvError},
+    };
 
     #[derive(Clone, Debug)]
     pub enum Endpoint {
@@ -165,6 +172,19 @@ pub mod upstream {
         fn from(e: cache::urns::Event) -> Self {
             Self::from(Caches::Urns(e))
         }
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Replication {
+        pub updated: RefUpdate,
+        pub tracked: Vec<Either<PeerId, Urn>>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct RefUpdate {
+        pub name: RefString,
+        pub previous: ext::Oid,
+        pub current: ext::Oid,
     }
 
     #[derive(Debug, Error)]
