@@ -20,6 +20,7 @@ use librad::{
     },
     profile::Profile,
     PeerId,
+    PublicKey,
 };
 use lnk_clib::{
     keys::ssh::SshAuthSock,
@@ -48,6 +49,7 @@ pub fn eval(profile: &Profile, sock: SshAuthSock, opts: Options) -> anyhow::Resu
             eval_accept(profile, sock, urn, peer, force)?
         },
         Options::Tracked(Tracked { urn }) => eval_tracked(profile, urn)?,
+        Options::Delegates(Delegates { urn, peer }) => eval_delegates(profile, urn, peer)?,
     }
 
     Ok(())
@@ -161,6 +163,28 @@ fn eval_tracked(profile: &Profile, urn: Urn) -> anyhow::Result<()> {
         .map(|peer| peer.map(|status| status.map(display::Persona::from)))
         .collect::<Vec<_>>();
     println!("{}", serde_json::to_string(&peers)?);
+    Ok(())
+}
+
+fn eval_delegates(profile: &Profile, urn: Urn, peer: Option<PeerId>) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct Delegates {
+        indirect: Vec<Urn>,
+        direct: Vec<PublicKey>,
+    }
+
+    let storage = storage::read_only(profile)?;
+    let mut delegates = Delegates {
+        indirect: Vec::new(),
+        direct: Vec::new(),
+    };
+    for del in project::delegates(&storage, &urn, peer)? {
+        match del {
+            either::Either::Left(key) => delegates.direct.push(key),
+            either::Either::Right(urn) => delegates.indirect.push(urn),
+        }
+    }
+    println!("{}", serde_json::to_string(&delegates)?);
     Ok(())
 }
 
