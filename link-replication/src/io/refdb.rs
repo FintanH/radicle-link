@@ -189,6 +189,24 @@ impl<D> Refdb<D> {
     }
 }
 
+pub enum Edit {
+    Direct {
+        prev: Option<ObjectId>,
+        curr: ObjectId,
+        inner: RefEdit,
+    },
+    Symbolic {
+        name: FullName,
+        prev: Option<ObjectId>,
+        curr: ObjectId,
+        inner: Vec<RefEdit>,
+    },
+    Prune {
+        prev: ObjectId,
+        inner: RefEdit,
+    },
+}
+
 impl<D: Odb> Refdb<D> {
     fn find_namespaced(&self, name: &FullName) -> Result<Option<ObjectId>, error::Find> {
         match self.snap.find(name.to_partial())? {
@@ -197,10 +215,7 @@ impl<D: Odb> Refdb<D> {
         }
     }
 
-    fn as_edits<'a>(
-        &self,
-        update: Update<'a>,
-    ) -> Result<Either<Update<'a>, Vec<RefEdit>>, error::Tx> {
+    fn as_edits<'a>(&self, update: Update<'a>) -> Result<Either<Update<'a>, Edit>, error::Tx> {
         match update {
             Update::Direct {
                 name,
@@ -214,17 +229,21 @@ impl<D: Odb> Refdb<D> {
                 type_change,
             } => self.symbolic_edit(name, target, type_change),
 
-            Update::Prune { name, prev } => Ok(Either::Right(vec![RefEdit {
-                change: Change::Delete {
-                    log: RefLog::AndReference,
-                    expected: PreviousValue::MustExistAndMatch(
-                        prev.map_right(qualified_to_fullname)
-                            .either(Target::Peeled, Target::Symbolic),
-                    ),
+            Update::Prune { name, target, prev } => Ok(Either::Right(Edit::Prune {
+                prev,
+                inner: RefEdit {
+                    change: Change::Delete {
+                        log: RefLog::AndReference,
+                        expected: PreviousValue::MustExistAndMatch(
+                            target
+                                .map_right(qualified_to_fullname)
+                                .either(Target::Peeled, Target::Symbolic),
+                        ),
+                    },
+                    name: self.namespaced(&name),
+                    deref: false,
                 },
-                name: self.namespaced(&name),
-                deref: false,
-            }])),
+            })),
         }
     }
 
@@ -233,26 +252,30 @@ impl<D: Odb> Refdb<D> {
         name: Qualified<'a>,
         target: ObjectId,
         no_ff: Policy,
-    ) -> Result<Either<Update<'a>, Vec<RefEdit>>, error::Tx> {
+    ) -> Result<Either<Update<'a>, Edit>, error::Tx> {
         use Either::*;
 
         let force_create_reflog = force_reflog(&name);
         let name_ns = self.namespaced(&name);
         let tip = self.find_namespaced(&name_ns)?;
         match tip {
-            None => Ok(Right(vec![RefEdit {
-                change: Change::Update {
-                    log: LogChange {
-                        mode: RefLog::AndReference,
-                        force_create_reflog,
-                        message: "replicate: create".into(),
+            None => Ok(Right(Edit::Direct {
+                prev: None,
+                curr: target,
+                inner: RefEdit {
+                    change: Change::Update {
+                        log: LogChange {
+                            mode: RefLog::AndReference,
+                            force_create_reflog,
+                            message: "replicate: create".into(),
+                        },
+                        expected: PreviousValue::MustNotExist,
+                        new: Target::Peeled(target),
                     },
-                    expected: PreviousValue::MustNotExist,
-                    new: Target::Peeled(target),
+                    name: name_ns,
+                    deref: false,
                 },
-                name: name_ns,
-                deref: false,
-            }])),
+            })),
 
             Some(prev) => {
                 let is_ff = self.odb.is_in_ancestry_path(target, prev).map_err(|e| {
@@ -275,34 +298,44 @@ impl<D: Odb> Refdb<D> {
                             target,
                             no_ff,
                         })),
-                        Policy::Allow => Ok(Right(vec![RefEdit {
+                        Policy::Allow => Ok(Right(Edit::Direct {
+                            prev: Some(prev),
+                            curr: target,
+                            inner: RefEdit {
+                                change: Change::Update {
+                                    log: LogChange {
+                                        mode: RefLog::AndReference,
+                                        force_create_reflog,
+                                        message: "replicate: forced update".into(),
+                                    },
+                                    expected: PreviousValue::MustExistAndMatch(Target::Peeled(
+                                        prev,
+                                    )),
+                                    new: Target::Peeled(target),
+                                },
+                                name: name_ns,
+                                deref: false,
+                            },
+                        })),
+                    }
+                } else {
+                    Ok(Right(Edit::Direct {
+                        prev: Some(prev),
+                        curr: target,
+                        inner: RefEdit {
                             change: Change::Update {
                                 log: LogChange {
                                     mode: RefLog::AndReference,
                                     force_create_reflog,
-                                    message: "replicate: forced update".into(),
+                                    message: "replicate: fast-forward".into(),
                                 },
                                 expected: PreviousValue::MustExistAndMatch(Target::Peeled(prev)),
                                 new: Target::Peeled(target),
                             },
                             name: name_ns,
                             deref: false,
-                        }])),
-                    }
-                } else {
-                    Ok(Right(vec![RefEdit {
-                        change: Change::Update {
-                            log: LogChange {
-                                mode: RefLog::AndReference,
-                                force_create_reflog,
-                                message: "replicate: fast-forward".into(),
-                            },
-                            expected: PreviousValue::MustExistAndMatch(Target::Peeled(prev)),
-                            new: Target::Peeled(target),
                         },
-                        name: name_ns,
-                        deref: false,
-                    }]))
+                    }))
                 }
             },
         }
@@ -313,7 +346,7 @@ impl<D: Odb> Refdb<D> {
         name: Qualified<'a>,
         target: SymrefTarget<'a>,
         type_change: Policy,
-    ) -> Result<Either<Update<'a>, Vec<RefEdit>>, error::Tx> {
+    ) -> Result<Either<Update<'a>, Edit>, error::Tx> {
         use Either::*;
 
         let name_ns = self.namespaced(&name);
@@ -358,36 +391,41 @@ impl<D: Odb> Refdb<D> {
                     // Target does not exist
                     None => {
                         let dst_name = qualified_to_fullname(dst_name.clone().into_qualified());
-                        vec![
-                            // Create target
-                            RefEdit {
-                                change: Change::Update {
-                                    log: LogChange {
-                                        mode: RefLog::AndReference,
-                                        force_create_reflog,
-                                        message: "replicate: implicit symref target".into(),
+                        Edit::Symbolic {
+                            name: src_name.clone(),
+                            prev: None,
+                            curr: target,
+                            inner: vec![
+                                // Create target
+                                RefEdit {
+                                    change: Change::Update {
+                                        log: LogChange {
+                                            mode: RefLog::AndReference,
+                                            force_create_reflog,
+                                            message: "replicate: implicit symref target".into(),
+                                        },
+                                        expected: PreviousValue::MustNotExist,
+                                        new: Target::Peeled(target),
                                     },
-                                    expected: PreviousValue::MustNotExist,
-                                    new: Target::Peeled(target),
+                                    name: dst_name.clone(),
+                                    deref: false,
                                 },
-                                name: dst_name.clone(),
-                                deref: false,
-                            },
-                            // Create source
-                            RefEdit {
-                                change: Change::Update {
-                                    log: LogChange {
-                                        mode: RefLog::AndReference,
-                                        force_create_reflog,
-                                        message: "replicate: symbolic ref".into(),
+                                // Create source
+                                RefEdit {
+                                    change: Change::Update {
+                                        log: LogChange {
+                                            mode: RefLog::AndReference,
+                                            force_create_reflog,
+                                            message: "replicate: symbolic ref".into(),
+                                        },
+                                        expected: PreviousValue::MustNotExist,
+                                        new: Target::Symbolic(dst_name),
                                     },
-                                    expected: PreviousValue::MustNotExist,
-                                    new: Target::Symbolic(dst_name),
+                                    name: src_name,
+                                    deref: false,
                                 },
-                                name: src_name,
-                                deref: false,
-                            },
-                        ]
+                            ],
+                        }
                     },
 
                     // Target is a direct ref
@@ -440,10 +478,15 @@ impl<D: Odb> Refdb<D> {
                                     .unwrap_or(PreviousValue::MustNotExist),
                                 new: Target::Symbolic(dst_name),
                             },
-                            name: src_name,
+                            name: src_name.clone(),
                             deref: false,
                         });
-                        edits
+                        Edit::Symbolic {
+                            name: src_name,
+                            prev: Some(dst),
+                            curr: target,
+                            inner: edits,
+                        }
                     },
                 };
 
@@ -504,14 +547,40 @@ impl<D: Odb> refdb::Refdb for Refdb<D> {
             // XXX: annoyingly, gitoxide refuses multiple edits of the same ref
             // in a transaction
             edits: HashMap<FullName, RefEdit>,
+            updates: HashMap<FullName, (Option<ObjectId>, ObjectId)>,
+            prunes: HashMap<FullName, ObjectId>,
         }
 
-        let Edits { rejected, edits } = updates.into_iter().map(|up| self.as_edits(up)).fold_ok(
+        let Edits {
+            rejected,
+            edits,
+            mut updates,
+            mut prunes,
+        } = updates.into_iter().map(|up| self.as_edits(up)).fold_ok(
             Edits::default(),
             |mut es, e| {
                 match e {
                     Left(rej) => es.rejected.push(rej),
-                    Right(ed) => es.edits.extend(ed.into_iter().map(|e| (e.name.clone(), e))),
+                    Right(ed) => match ed {
+                        Edit::Direct { prev, curr, inner } => {
+                            es.updates.insert(inner.name.clone(), (prev, curr));
+                            es.edits.insert(inner.name.clone(), inner);
+                        },
+                        Edit::Symbolic {
+                            name,
+                            prev,
+                            curr,
+                            inner,
+                        } => {
+                            es.edits
+                                .extend(inner.into_iter().map(|e| (name.clone(), e)));
+                            es.updates.insert(name, (prev, curr));
+                        },
+                        Edit::Prune { prev, inner } => {
+                            es.prunes.insert(inner.name.clone(), prev);
+                            es.edits.insert(inner.name.clone(), inner);
+                        },
+                    },
                 }
                 es
             },
@@ -524,21 +593,44 @@ impl<D: Odb> refdb::Refdb for Refdb<D> {
         let applied = tx
             .commit(&sig)?
             .into_iter()
-            .map(|RefEdit { change, name, .. }| {
-                let name = fullname_to_refstring(name)?;
-                let updated = match change {
-                    Change::Update { new, .. } => match new {
-                        Target::Peeled(oid) => Updated::Direct { name, target: oid },
-                        Target::Symbolic(sym) => Updated::Symbolic {
-                            name,
-                            target: fullname_to_refstring(sym)?,
+            .map(
+                |RefEdit {
+                     change,
+                     name: fullname,
+                     ..
+                 }| {
+                    let name = fullname_to_refstring(fullname.clone())?;
+                    let updated = match change {
+                        Change::Update { new, .. } => match new {
+                            Target::Peeled(oid) => {
+                                let (prev, curr) =
+                                    updates.remove(&fullname).expect("BUG: missing ref update");
+                                debug_assert_eq!(oid, curr);
+                                Updated::Direct { name, prev, curr }
+                            },
+                            Target::Symbolic(sym) => {
+                                let (prev, curr) = updates
+                                    .remove(&fullname)
+                                    .expect("BUG: missing symref update");
+                                Updated::Symbolic {
+                                    name,
+                                    target: fullname_to_refstring(sym)?,
+                                    prev,
+                                    curr,
+                                }
+                            },
                         },
-                    },
-                    Change::Delete { .. } => Updated::Prune { name },
-                };
+                        Change::Delete { .. } => Updated::Prune {
+                            name,
+                            prev: prunes
+                                .remove(&fullname)
+                                .expect("BUG: pruned reference without previous OID"),
+                        },
+                    };
 
-                Ok(updated)
-            })
+                    Ok(updated)
+                },
+            )
             .collect::<Result<Vec<_>, Self::TxError>>()?;
 
         if !applied.is_empty() {

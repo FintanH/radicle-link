@@ -50,10 +50,11 @@ impl Refdb for Mem {
                     no_ff: _,
                 } => {
                     let name = name.into_owned();
-                    self.refs.insert(name.clone(), target);
+                    let prev = self.refs.insert(name.clone(), target);
                     ap.updated.push(Updated::Direct {
                         name: name.into_refstring(),
-                        target,
+                        prev,
+                        curr: target,
                     });
                 },
                 Update::Symbolic {
@@ -62,17 +63,20 @@ impl Refdb for Mem {
                     type_change: _,
                 } => {
                     let name = name.into_owned();
-                    self.refs.insert(name.clone(), target.target);
+                    let prev = self.refs.insert(name.clone(), target.target);
                     ap.updated.push(Updated::Symbolic {
                         name: name.into_refstring(),
                         target: target.name().to_owned(),
+                        prev,
+                        curr: target.target,
                     });
                 },
-                Update::Prune { name, prev: _ } => {
+                Update::Prune { name, prev, .. } => {
                     let name = name.into_owned();
                     if self.refs.remove(&name).is_some() {
                         ap.updated.push(Updated::Prune {
                             name: name.into_refstring(),
+                            prev,
                         })
                     }
                 },

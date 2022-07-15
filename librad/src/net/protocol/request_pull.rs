@@ -120,14 +120,14 @@ where
         succ.updated_refs()
             .iter()
             .try_fold(Success::default(), |mut success, up| match up {
-                Updated::Direct { name, target } => {
+                Updated::Direct { name, curr, .. } => {
                     success.refs.push(Ref {
                         name: name.clone(),
-                        oid: (*target).into(),
+                        oid: (*curr).into(),
                     });
                     Ok(success)
                 },
-                Updated::Symbolic { name, target } => {
+                Updated::Symbolic { name, target, .. } => {
                     let oid = (*storage).reference_oid(target)?;
                     success.refs.push(Ref {
                         name: name.clone(),
@@ -135,7 +135,7 @@ where
                     });
                     Ok(success)
                 },
-                Updated::Prune { name } => {
+                Updated::Prune { name, .. } => {
                     success.pruned.push(name.clone());
                     Ok(success)
                 },

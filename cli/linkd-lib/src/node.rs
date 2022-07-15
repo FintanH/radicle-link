@@ -49,7 +49,7 @@ pub async fn run() -> anyhow::Result<()> {
         .fuse();
     coalesced.push(peer_task);
 
-    let (hooks_sx, hooks) = Hooks::new(cfg.profile.paths(), cfg.hooks).await?;
+    let (_hooks_sx, hooks) = Hooks::new(cfg.profile.paths(), cfg.hooks).await?;
     let hooks_task = spawner.spawn(hooks.run()).fuse();
     coalesced.push(hooks_task);
 

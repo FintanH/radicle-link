@@ -107,15 +107,15 @@ impl<'a> From<Namespaced<'a, replication::Success>> for Progress {
             progress.push_str("updated references:\n");
             for updated in updates {
                 let update = match updated {
-                    Updated::Direct { name, target } => {
+                    Updated::Direct { name, curr, .. } => {
+                        let name = name.strip_prefix(&prefix).unwrap_or(name);
+                        format!("+{name}->{curr}\n")
+                    },
+                    Updated::Symbolic { name, target, .. } => {
                         let name = name.strip_prefix(&prefix).unwrap_or(name);
                         format!("+{name}->{target}\n")
                     },
-                    Updated::Symbolic { name, target } => {
-                        let name = name.strip_prefix(&prefix).unwrap_or(name);
-                        format!("+{name}->{target}\n")
-                    },
-                    Updated::Prune { name } => {
+                    Updated::Prune { name, .. } => {
                         let name = name.strip_prefix(&prefix).unwrap_or(name);
                         format!("-{name}\n")
                     },

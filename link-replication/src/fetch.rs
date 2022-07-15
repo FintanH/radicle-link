@@ -129,7 +129,11 @@ impl<T: AsRef<oid>> UpdateTips for Fetch<T> {
             let prefix_rad = prefix.join(name::RAD);
             let scan_err = |e: <&C as RefScan>::Error| error::Prepare::Scan { source: e.into() };
             for known in RefScan::scan(cx, prefix.as_str()).map_err(scan_err)? {
-                let refdb::Ref { name, target, .. } = known.map_err(scan_err)?;
+                let refdb::Ref {
+                    name,
+                    target,
+                    peeled,
+                } = known.map_err(scan_err)?;
                 // 'rad/' refs are never subject to pruning
                 if name.starts_with(prefix_rad.as_str()) {
                     continue;
@@ -138,7 +142,8 @@ impl<T: AsRef<oid>> UpdateTips for Fetch<T> {
                 if !signed.contains(&name) {
                     tips.push(Update::Prune {
                         name,
-                        prev: target.map_left(|oid| oid.into()),
+                        target: target.map_left(|oid| oid.into()),
+                        prev: peeled.into(),
                     });
                 }
             }

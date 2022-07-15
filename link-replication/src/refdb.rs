@@ -99,7 +99,8 @@ pub enum Update<'a> {
     },
     Prune {
         name: refs::Qualified<'a>,
-        prev: Either<ObjectId, refs::Qualified<'a>>,
+        target: Either<ObjectId, refs::Qualified<'a>>,
+        prev: ObjectId,
     },
 }
 
@@ -134,9 +135,10 @@ impl Update<'_> {
                 type_change,
             },
 
-            Self::Prune { name, prev } => Update::Prune {
+            Self::Prune { name, target, prev } => Update::Prune {
                 name: name.into_owned(),
-                prev: prev.map_right(|q| q.into_owned()),
+                target: target.map_right(|q| q.into_owned()),
+                prev,
             },
         }
     }
@@ -173,9 +175,21 @@ impl SymrefTarget<'_> {
 
 #[derive(Clone, Debug)]
 pub enum Updated {
-    Direct { name: RefString, target: ObjectId },
-    Symbolic { name: RefString, target: RefString },
-    Prune { name: RefString },
+    Direct {
+        name: RefString,
+        prev: Option<ObjectId>,
+        curr: ObjectId,
+    },
+    Symbolic {
+        name: RefString,
+        target: RefString,
+        prev: Option<ObjectId>,
+        curr: ObjectId,
+    },
+    Prune {
+        name: RefString,
+        prev: ObjectId,
+    },
 }
 
 #[derive(Debug, Default)]

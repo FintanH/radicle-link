@@ -128,16 +128,16 @@ impl FromIterator<link_replication::Updated> for References {
     fn from_iter<T: IntoIterator<Item = link_replication::Updated>>(iter: T) -> Self {
         iter.into_iter().fold(Self::default(), |mut refs, update| {
             match update {
-                link_replication::Updated::Direct { name, target } => {
+                link_replication::Updated::Direct { name, curr, .. } => {
                     refs.updated.direct.push(Direct {
                         name,
-                        target: target.into(),
+                        target: curr.into(),
                     })
                 },
-                link_replication::Updated::Symbolic { name, target } => {
+                link_replication::Updated::Symbolic { name, target, .. } => {
                     refs.updated.symbolic.push(Symbolic { name, target })
                 },
-                link_replication::Updated::Prune { name } => refs.pruned.push(name),
+                link_replication::Updated::Prune { name, .. } => refs.pruned.push(name),
             }
             refs
         })
